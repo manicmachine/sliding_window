@@ -5,6 +5,8 @@
 #ifndef SLIDING_WINDOW_APPLICATIONSTATE_H
 #define SLIDING_WINDOW_APPLICATIONSTATE_H
 
+#include <sys/stat.h>
+
 using namespace std;
 
 enum Role {
@@ -19,15 +21,17 @@ struct ApplicationState {
         Protocol protocol = NO_PROTO;
         int sockfd;
         unsigned int pktSize = 0;
-        string ipAddress = "";
-        string localIPAddress = "";
+        string ipAddress;
+        string localIPAddress;
         unsigned int port = 0;
-        string file = "";
+        string file;
+        struct stat fileStats{};
         time_t timeoutInterval = 0;
+        float timeoutScale = 0;
         FILE *pFile;
         size_t bytesRead = 0;
         bool verbose = false;
-        unsigned short wSize = 0;
+        unsigned char wSize = 0;
         unsigned int sqnRange = 0;
 
         // Situational errors

@@ -27,10 +27,10 @@ class PacketBuilder {
     bool fin = false;
     char *payload;
 
-    template<typename InputIterator>
-    uint_fast32_t generateChksum(InputIterator first, InputIterator last);
-
-    array<std::uint_fast32_t, 256> generateCrcLookupTable();
+//    template<typename InputIterator>
+//    uint_fast32_t generateChksum(InputIterator first, InputIterator last);
+//
+//    array<std::uint_fast32_t, 256> generateCrcLookupTable();
 
 public:
     void setSqn(unsigned int sqn);
