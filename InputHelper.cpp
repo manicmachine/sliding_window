@@ -2,7 +2,9 @@
 // Created by csather on 4/3/21.
 //
 #include <iostream>
+#include <fstream>
 #include <string.h>
+
 #include "boost/asio.hpp"
 #include "InputHelper.h"
 
@@ -20,40 +22,36 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
             }
 
             // Set verbose
-            if (strcmp(argv[i], "--verbose") == 0 || strcmp(argv[i], "verbose") == 0) {
+            if (strcmp(argv[i], "--verbose") == 0 || strcmp(argv[i], "verbose") == 0 || strcmp(argv[i], "v") == 0) {
                 printf("Verbose: ON\n");
                 appState->verbose = true;
             }
 
             // Set IP address
             if (strcmp(argv[i], "--ip") == 0 || strcmp(argv[i], "ip") == 0) {
-                boost::system::error_code ec;
-                boost::asio::ip::address::from_string(argv[i+1], ec);
-
-                if (ec) {
-                    fprintf(stderr, "Invalid IP address provided: Error parsing value.\n");
+                string seq = argv[i + 1];
+                if (parseIPAddresses(&seq, &appState->ipAddresses) < 0) {
+                    fprintf(stderr, "Invalid IP address(s) provided: Error parsing values.\n");
                     exit(-1);
                 }
-
-                appState->ipAddress = argv[i + 1];
             }
 
             // Set port
             if (strcmp(argv[i], "--port") == 0 || strcmp(argv[i], "port") == 0) {
                 try {
-                    appState->port = stoi(argv[i + 1]);
+                    appState->connInfo.port = stoi(argv[i + 1]);
                 } catch (invalid_argument &e) {
                     fprintf(stderr, "Invalid port provided: Error parsing value.\n");
                     exit(-1);
                 }
             }
 
-            // Set file to be sent
-            if (appState->role == CLIENT && (strcmp(argv[i], "--file") == 0 || strcmp(argv[i], "file") == 0)) {
-                appState->file = argv[i + 1];
+            // Set file to be sent (client) or path which to save files to (server)
+            if (strcmp(argv[i], "--fp") == 0 || strcmp(argv[i], "fp") == 0) {
+                appState->filePath = argv[i + 1];
 
-                if (stat(appState->file.c_str(), &appState->fileStats) != 0) {
-                    fprintf(stderr, "Invalid file provided: Unable to access file.\n");
+                if (stat(appState->filePath.c_str(), &appState->fileStats) != 0) {
+                    fprintf(stderr, "Invalid file path provided: Unable to access file path.\n");
                     exit(-1);
                 }
             }
@@ -61,8 +59,8 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
 
             // Set protocol
             if (strcmp(argv[i], "--gbn") == 0 || strcmp(argv[i], "gbn") == 0) {
-                if (appState->protocol == NO_PROTO) {
-                    appState->protocol = GBN;
+                if (appState->connInfo.protocol == NO_PROTO) {
+                    appState->connInfo.protocol = GBN;
                 } else {
                     fprintf(stderr, "Invalid protocol provided: A protocol is already set.\n");
                     exit(-1);
@@ -70,8 +68,8 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
             }
 
             if (strcmp(argv[i], "--sr") == 0 || strcmp(argv[i], "sr") == 0) {
-                if (appState->protocol == NO_PROTO) {
-                    appState->protocol = SR;
+                if (appState->connInfo.protocol == NO_PROTO) {
+                    appState->connInfo.protocol = SR;
                 } else {
                     fprintf(stderr, "Invalid protocol provided:A protocol is already set.\n");
                     exit(-1);
@@ -84,7 +82,7 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
                     tmp = stoi(argv[i + 1]);
 
                     if (tmp > 0 && tmp < 65) {
-                        appState->pktSize = tmp;
+                        appState->connInfo.pktSize = tmp;
                     } else {
                         fprintf(stderr, "Invalid packet size provided: Value must be between 0 and 65 KB\n");
                         exit(-1);
@@ -101,7 +99,7 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
                     tmp = stoi(argv[i + 1]);
 
                     if (tmp > 0) {
-                        appState->timeoutInterval = tmp;
+                        appState->connInfo.timeoutInterval = tmp;
                     } else {
                         fprintf(stderr, "Invalid timeout interval provided: Value must be positive.\n");
                         exit(-1);
@@ -123,7 +121,7 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
                     tmp = stoi(argv[i + 1]);
 
                     if (tmp > 0 && tmp < 65) {
-                        appState->wSize = tmp;
+                        appState->connInfo.wSize = tmp;
                     } else {
                         fprintf(stderr, "Invalid window size provided: Value must be between 0 and 65.\n");
                         exit(-1);
@@ -141,9 +139,9 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
 
                     if (tmp > 0 && tmp < 33) {
                         if (tmp == 32) {
-                            appState->sqnRange = -1; // assigning an unsigned int to -1 results in it containing its maximum value
+                            appState->connInfo.sqnRange = -1; // assigning an unsigned int to -1 results in it containing its maximum value
                         } else {
-                            appState->sqnRange = (1 << tmp) - 1;
+                            appState->connInfo.sqnRange = (1 << tmp) - 1;
                         }
                     } else {
                         fprintf(stderr, "Invalid sequence range provided: Value must be between 0 and 33 bits.\n");
@@ -163,7 +161,7 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
                     tmp_f = stof(argv[i + 1]);
 
                     if (tmp_f >= 0 && tmp_f <= 100) {
-                        appState->damageProb = tmp_f;
+                        appState->connInfo.damageProb = tmp_f;
                     } else {
                         fprintf(stderr, "Invalid damage/lost probability provided: Value must be from 0 to 100.\n");
                         exit(-1);
@@ -177,8 +175,25 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
             // Situational errors - Damage/lost packets
             if (strcmp(argv[i], "--dls") == 0 || strcmp(argv[i], "dls") == 0) {
                 string seq = argv[i + 1];
-                if (parseDamagedPacketSeq(&seq, &appState->damagedPackets) < 0) {
+                if (parseDamagedPacketSeq(&seq, &appState->connInfo.damagedPackets) < 0) {
                     fprintf(stderr, "Invalid packet sequence provided: Error parsing values.\n");
+                    exit(-1);
+                }
+            }
+
+            // Max number of connections (server only)
+            if (strcmp(argv[i], "--mc") == 0 || strcmp(argv[i], "mc") == 0) {
+                try {
+                    tmp = stoi(argv[i + 1]);
+
+                    if (tmp > 0) {
+                        appState->connInfo.maxConnections = tmp;
+                    } else {
+                        fprintf(stderr, "Invalid max number of connections provided: Value must be positive integer.\n");
+                        exit(-1);
+                    }
+                } catch (invalid_argument &e) {
+                    fprintf(stderr, "Invalid max number of connections provided: Error parsing value.\n");
                     exit(-1);
                 }
             }
@@ -224,49 +239,43 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
     }
 
     input.clear();
-    if (appState->ipAddress.empty()) {
+    if (appState->ipAddresses.empty()) {
         boost::system::error_code ec;
 
-        while (appState->ipAddress.empty()) {
+        while (appState->ipAddresses.empty()) {
             if (appState->role == CLIENT) {
-                printf("Enter IP address to connect to (Default: 127.0.0.1): ");
+                printf("Enter a comma-separated sequence of IP addresses to connect to (Default: 127.0.0.1): ");
             } else {
-                printf("Enter IP address to permit connections from (Default: Any): ");
+                printf("Enter a comma-separated sequence of IP addresses to permit connections from (Default: Any): ");
             }
 
             getline(cin, input);
             if (input.empty()) {
-                if (appState->role == CLIENT) appState->ipAddress = "127.0.0.1";
-                else appState->ipAddress = "0.0.0.0";
-
+                if (appState->role == CLIENT) appState->ipAddresses.emplace_back("127.0.0.1");
                 break;
-            }
-
-            boost::asio::ip::address::from_string(input, ec);
-
-            if (ec) {
-                printf("Invalid IP address provided\n");
             } else {
-                appState->ipAddress = input;
+                if (parseIPAddresses(&input, &appState->ipAddresses) < 0) {
+                    printf("Invalid values entered. Enter a comma-separated sequence of IP addresses\n");
+                }
             }
         }
     }
 
     input.clear();
-    if (appState->port == 0) {
+    if (appState->connInfo.port == 0) {
         printf("Enter Port to connect to (Default: 9000): ");
 
-        while (appState->port == 0) {
+        while (appState->connInfo.port == 0) {
             try {
                 getline(cin, input);
                 if (input.empty()) {
-                    appState->port = 9000;
+                    appState->connInfo.port = 9000;
                     break;
                 }
 
                 tmp = stoi(input);
 
-                appState->port = tmp;
+                appState->connInfo.port = tmp;
             } catch (invalid_argument &e) {
                 printf("Invalid value entered\n");
             }
@@ -274,34 +283,50 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
     }
 
     input.clear();
-    if (appState->file.empty()) {
-        printf("Enter file to be sent: ");
+    if (appState->filePath.empty()) {
+        if (appState->role == CLIENT) printf("Enter path of file to be sent: ");
+        else printf("Enter path which to save files to (Default: ./): ");
 
-        while (appState->file.empty()) {
+        while (appState->filePath.empty()) {
             getline(cin, input);
 
-            // Check to see if the file can be accessed
+            if (appState->role == SERVER && input.empty()) {
+                input = ".";
+            }
+
+            // Check to see if the filePath can be accessed
             if (stat(input.c_str(), &appState->fileStats) != 0) {
-                printf("Unable to access file specified\n");
+                printf("Unable to access file path specified\n");
             } else {
-                appState->file = input;
+                if (appState->role == SERVER) {
+                    // Check server can actually write to directory
+                    ofstream file {input + "/.sliding_window_test.txt"};
+                    file.close();
+                    if (file.fail()) {
+                        printf("Unable to write to file path specified\n");
+                    } else {
+                        remove((input + "/.sliding_window_test.txt").c_str());
+                    }
+                }
+
+                appState->filePath = input;
             }
         }
     }
 
     input.clear();
-    if (appState->protocol == NO_PROTO) {
+    if (appState->connInfo.protocol == NO_PROTO) {
         printf("Select protocol:\n");
         printf("\t1 - Selective Repeat (Default)\n");
         printf("\t2 - Go-Back-N\n");
         printf(">> ");
 
-        while (appState->protocol == NO_PROTO) {
+        while (appState->connInfo.protocol == NO_PROTO) {
             try {
                 getline(cin, input);
 
                 if (input.empty()) {
-                    appState->protocol = SR;
+                    appState->connInfo.protocol = SR;
                     break;
                 }
 
@@ -309,10 +334,10 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
 
                 switch (tmp) {
                     case SR:
-                        appState->protocol = SR;
+                        appState->connInfo.protocol = SR;
                         break;
                     case GBN:
-                        appState->protocol = GBN;
+                        appState->connInfo.protocol = GBN;
                         break;
                     default:
                         printf("Invalid value entered. Enter either 1 (SR) or 2 (GBN)\n");
@@ -324,21 +349,21 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
     }
 
     input.clear();
-    if (appState->pktSize == 0) {
+    if (appState->connInfo.pktSize == 0) {
         printf("Enter packet size in KB (Default: 32, Max: 64): ");
 
-        while (appState->pktSize == 0) {
+        while (appState->connInfo.pktSize == 0) {
             try {
                 getline(cin, input);
                 if (input.empty()) {
-                    appState->pktSize = 32;
+                    appState->connInfo.pktSize = 32;
                     break;
                 }
 
                 tmp = stoi(input);
 
                 if (tmp > 0 && tmp < 65) {
-                    appState->pktSize = tmp;
+                    appState->connInfo.pktSize = tmp;
                 } else {
                     printf("Invalid value entered. Packet size must be between 0 and 65\n");
                 }
@@ -348,15 +373,16 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
         }
     }
 
+    // TODO: Needed for server?
     input.clear();
-    if (appState->timeoutInterval == 0) {
+    if (appState->connInfo.timeoutInterval == 0) {
         bool pingTimeout = false;
         printf("Select timeout interval calculation: \n");
         printf("\t1 - Ping calculated (Default)\n");
         printf("\t2 - User specified\n");
         printf(">> ");
 
-        while (appState->timeoutInterval == 0 && !pingTimeout) {
+        while (appState->connInfo.timeoutInterval == 0 && !pingTimeout) {
             getline(cin, input);
 
             if (input.empty()) {
@@ -372,7 +398,7 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
                 } else if (tmp == 2) {
                     printf("Enter timeout interval (ms): ");
 
-                    while (appState->timeoutInterval == 0) {
+                    while (appState->connInfo.timeoutInterval == 0) {
                         getline(cin, input);
 
                         if (input.empty()) {
@@ -384,7 +410,7 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
                             tmp = stoi(input);
 
                             if (tmp > 0) {
-                                appState->timeoutInterval = tmp;
+                                appState->connInfo.timeoutInterval = tmp;
                             } else {
                                 printf("Invalid value entered. Enter a positive integer\n");
                             }
@@ -406,14 +432,14 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
     }
 
     input.clear();
-    if (appState->wSize == 0 && appState->protocol != GBN) {
+    if (appState->connInfo.wSize == 0 && appState->connInfo.protocol != GBN) {
         printf("Enter the window size (Default: 8, Max: 64): ");
 
-        while (appState->wSize == 0) {
+        while (appState->connInfo.wSize == 0) {
             getline(cin, input);
 
             if (input.empty()) {
-                appState->wSize = 8;
+                appState->connInfo.wSize = 8;
                 break;
             }
 
@@ -421,7 +447,7 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
                 tmp = stoi(input);
 
                 if (tmp > 0 && tmp < 65) {
-                    appState->wSize = tmp;
+                    appState->connInfo.wSize = tmp;
                 } else {
                     printf("Invalid value entered. Enter a value between 0 and 65\n");
                 }
@@ -429,19 +455,19 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
                 printf("Invalid value entered. Enter a value between 0 and 65\n");
             }
         }
-    } else if (appState->protocol == GBN) {
-        appState->wSize = 1;
+    } else if (appState->connInfo.protocol == GBN) {
+        appState->connInfo.wSize = 1;
     }
 
     input.clear();
-    if (appState->sqnRange == 0) {
+    if (appState->connInfo.sqnRange == 0) {
         printf("Enter the number of bits to be used for the sequence number (Default: 8, Max: 32): ");
 
-        while (appState->sqnRange == 0) {
+        while (appState->connInfo.sqnRange == 0) {
             getline(cin, input);
 
             if (input.empty()) {
-                appState->sqnRange = (1 << 8) - 1;
+                appState->connInfo.sqnRange = (1 << 8) - 1;
                 break;
             }
 
@@ -451,9 +477,9 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
                 if (tmp > 0 && tmp < 33) {
                     if (tmp == 32) {
                         // assigning an unsigned int to -1 results in it containing its maximum value
-                        appState->sqnRange = -1;
+                        appState->connInfo.sqnRange = -1;
                     } else {
-                        appState->sqnRange = (1 << tmp) - 1;
+                        appState->connInfo.sqnRange = (1 << tmp) - 1;
                     }
                 } else {
                     printf("Invalid value entered. Enter a value between 0 and 33\n");
@@ -482,19 +508,19 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
 
         input.clear();
         printf("Enter packet damage/lost probability (Default: 0, MAX: 100): ");
-        while (appState->damageProb == -1) {
+        while (appState->connInfo.damageProb == -1) {
             getline(cin, input);
 
             if (input.empty()) {
-                appState->damageProb = 0;
+                appState->connInfo.damageProb = 0;
                 break;
             }
 
             try {
                 // Store directly into appState->damageProb since tmp would be a narrowing conversion
-                appState->damageProb = stof(input);
-                if (appState->damageProb < 0 || appState->damageProb > 100) {
-                    appState->damageProb = -1;
+                appState->connInfo.damageProb = stof(input);
+                if (appState->connInfo.damageProb < 0 || appState->connInfo.damageProb > 100) {
+                    appState->connInfo.damageProb = -1;
                     printf("Invalid value entered. Enter a percentage value from 0 to 100\n");
                 }
             } catch (invalid_argument &e) {
@@ -504,17 +530,14 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
 
         input.clear();
         printf("Enter a comma-separated sequence of damaged/lost packets (Default: None): ");
-        while (true) {
+        while (appState->connInfo.damagedPackets.empty()) {
             getline(cin, input);
 
             if (input.empty()) {
                 break;
             } else {
-                if (parseDamagedPacketSeq(&input, &appState->damagedPackets) < 0) {
-                    // Parsing failed
-                    printf("Invalid values entered. Enter a comma-separated sequence of integers (no spaces between) representing sequence numbers\n");
-                } else {
-                    break;
+                if (parseDamagedPacketSeq(&input, &appState->connInfo.damagedPackets) < 0) {
+                    printf("Invalid values entered. Enter a comma-separated sequence of integers representing sequence numbers\n");
                 }
             }
         }
@@ -539,9 +562,43 @@ int InputHelper::parseDamagedPacketSeq(string *seq, vector<int> *damagedPackets)
             try {
                 tmp = stoi(stringBuilder);
                 damagedPackets->push_back(tmp);
+                stringBuilder.clear();
             } catch (invalid_argument &e) {
                 // Invalid value entered; clear vector and exit
                 damagedPackets->clear();
+                return -1;
+            }
+        }
+    }
+
+    sort(damagedPackets->begin(), damagedPackets->end());
+    return 0;
+}
+
+int InputHelper::parseIPAddresses(string *seq, vector<string> *ipAddresses) {
+    string stringBuilder;
+    boost::system::error_code ec;
+    char currentChar;
+    const char COMMA = 44;
+    const char SPACE = 32;
+    const char NEWLINE = 0;
+
+    for (int i = 0; i < seq->length() + 1; i++) {
+        currentChar = seq->c_str()[i];
+
+        if (currentChar != COMMA && currentChar != NEWLINE) {
+            // Build IP string
+            if (currentChar == SPACE) continue; // ignore whitespace
+            else stringBuilder.push_back(currentChar);
+        } else {
+            // Validate IP address
+            try {
+                boost::asio::ip::address::from_string(stringBuilder, ec);
+                ipAddresses->push_back(stringBuilder);
+                stringBuilder.clear();
+            } catch (invalid_argument &e) {
+                // Invalid value entered; clear vector and exit
+                ipAddresses->clear();
                 return -1;
             }
         }

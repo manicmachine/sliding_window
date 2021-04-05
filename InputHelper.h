@@ -15,6 +15,8 @@ public:
     static void promptForParameters(ApplicationState *appState);
 
     static int parseDamagedPacketSeq(string *seq, vector<int> *damagedPackets);
+
+    static int parseIPAddresses(string *seq, vector<string> *ipAddresses);
 };
 
 

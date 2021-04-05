@@ -10,7 +10,7 @@ struct PacketInfo {
     struct Packet *pkt;
     time_t timeout;
     unsigned char count; // tracks the number of times this packet was sent/acked
-}
+};
 
 
 #endif //SLIDING_WINDOW_PACKETINFO_H

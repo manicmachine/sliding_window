@@ -1,76 +1,83 @@
-#define __POSIX_SOURCE
-
-#include <iostream>
-#include <iomanip>
-#include <netdb.h>
 #include <stdio.h>
 #include <string>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
 #include <unistd.h>
 
 #include "ApplicationState.h"
+#include "ConnectionController.h"
 #include "InputHelper.h"
-
-#define KB 1024
-
-int openConnection(string ipAddress, int port); // TODO: Move to SendController
-int startServer(string ipAddress, int port); // TODO: Move to RecController
-string getLocalAddress();
 
 
 int main(int argc, char *argv[]) {
     struct ApplicationState appState{};
+    ConnectionController *connectionController = new ConnectionController();
 
     printf("CS 462: Sliding Window Application\n");
     printf("\t\t by: Corey Sather\n\n");
 
-    //TODO: REMOVE ME!
-    appState.verbose = true;
-    //
-
     InputHelper::parseArgs(argc, argv, &appState);
     InputHelper::promptForParameters(&appState);
 
-    unsigned int pktNum = 0; // TODO: move to SendController
-    unsigned int pktSizeBytes = 0; // TODO: move to SendController
-
     if (appState.verbose) {
         printf("Entered Values:\n");
-        printf("Role: %d\n", appState.role);
-        printf("IP Address: %s\n", appState.ipAddress.c_str());
-        printf("Port: %i\n", appState.port);
 
-        if (appState.role == CLIENT) {
-            printf("Pkt Size (KB): %i\n", appState.pktSize);
-            printf("From File: %s\n", appState.file.c_str());
-        } else {
-            printf("Save File To: %s\n", appState.file.c_str());
+        if (appState.role == CLIENT) printf("Role: CLIENT\n");
+        else printf("Role: SERVER\n");
+
+        printf("IP Address: \n");
+
+        for (auto &ipAddress : appState.ipAddresses) {
+            printf("\t%s\n", ipAddress.c_str());
+        }
+
+        printf("Port: %i\n", appState.connInfo.port);
+        printf("File path: %s\n", appState.filePath.c_str());
+
+        switch(appState.connInfo.protocol) {
+            case GBN:
+                printf("Protocol: GBN\n");
+                break;
+            case SR:
+                printf("Protocol: SR\n");
+                break;
+            default:
+                break;
+        }
+
+        printf("Packet size (KB): %i\n", appState.connInfo.pktSize);
+        printf("Timeout interval (ms): %lu\n", appState.connInfo.timeoutInterval);
+        printf("Window size: %i\n", appState.connInfo.wSize);
+        printf("Sequence range: %i\n", appState.connInfo.sqnRange);
+        printf("Damage/lost probability: %g\n", appState.connInfo.damageProb);
+        printf("Damage/lost packets:\n");
+
+        for (int damagedPacket : appState.connInfo.damagedPackets) {
+            printf("\t%i\n", damagedPacket);
         }
     }
+
+
 //
 //    char *fileBuffer = (char *) calloc(KB, stoi(pktSize));
 //
 //    if (fileBuffer == NULL) {
-//        fprintf(stderr, "Internal error: Unable to initialize file buffer\nError #: %d\n", errno);
+//        fprintf(stderr, "Internal error: Unable to initialize filePath buffer\nError #: %d\n", errno);
 //        exit(-1);
 //    }
 //
-//    // Open file for read/writing as necessary
+//    // Open filePath for read/writing as necessary
 //    if (role == SERVER) {
-//        pFile = std::fopen(file.c_str(), "w+");
+//        pFile = std::fopen(filePath.c_str(), "w+");
 //    } else {
-//        pFile = std::fopen(file.c_str(), "r");
+//        pFile = std::fopen(filePath.c_str(), "r");
 //    }
 //
 //    if (pFile == NULL) {
-//        fprintf(stderr, "File error: Unable to open %s\nError #: %d\n", file.c_str(), errno);
+//        fprintf(stderr, "File error: Unable to open %s\nError #: %d\n", filePath.c_str(), errno);
 //        exit(-1);
 //    }
 //
 //    if (role == CLIENT) {
-//        // If client, read data from provided file and send each packet along to it's destination
+//        // If client, read data from provided filePath and send each packet along to it's destination
 //        sockfd = openConnection(ipAddress, stoi(port));
 //
 //        // Communicate packet size to the server
@@ -121,7 +128,7 @@ int main(int argc, char *argv[]) {
 //
 //        printf("\nSend Success!\n");
 //    } else {
-//        // If server, read incoming data from open socket and write to file
+//        // If server, read incoming data from open socket and write to filePath
 //        sockfd = startServer(ipAddress, stoi(port));
 //
 //        // The first 32 bytes sent from the client is the packet size. Read and configure as appropriate
@@ -134,7 +141,7 @@ int main(int argc, char *argv[]) {
 //            fileBuffer = (char *) realloc(fileBuffer, pktSizeBytes);
 //
 //            if (fileBuffer == NULL) {
-//                fprintf(stderr, "Internal error: Unable to initialize file buffer\nError #: %d\n", errno);
+//                fprintf(stderr, "Internal error: Unable to initialize filePath buffer\nError #: %d\n", errno);
 //                exit(-1);
 //            }
 //        }
@@ -182,8 +189,8 @@ int main(int argc, char *argv[]) {
 //        printf("\nReceive Success!\n");
 //    }
 //
-//    // If file destination is stdout, reset file cursor and read the entirety of the tmp file
-//    if (role == SERVER && strcmp(file.c_str(), "./.sendfile_tmp") == 0) {
+//    // If filePath destination is stdout, reset filePath cursor and read the entirety of the tmp filePath
+//    if (role == SERVER && strcmp(filePath.c_str(), "./.sendfile_tmp") == 0) {
 //        fseek(pFile, 0, SEEK_SET);
 //
 //        do {
@@ -203,45 +210,16 @@ int main(int argc, char *argv[]) {
 //    fclose(pFile);
 //    free(fileBuffer);
 //
-//    printf("MD5:\n%s\n", checkSum(file).c_str());
+//    printf("MD5:\n%s\n", checkSum(filePath).c_str());
 //
-//    // Delete temp file when everything is said and done
-//    if (role == SERVER && (strcmp(file.c_str(), "./.sendfile_tmp") == 0)) {
-//        remove(file.c_str());
+//    // Delete temp filePath when everything is said and done
+//    if (role == SERVER && (strcmp(filePath.c_str(), "./.sendfile_tmp") == 0)) {
+//        remove(filePath.c_str());
 //    }
 }
 
-//// Open socket and connect with server, returning the socket file descriptor. If return < 0, then an error occurred
-//int openConnection(string ipAddress, int port) {
-//    struct sockaddr_in serverAddr = {0, 0, 0, 0};
-//    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-//
-//    if (sockfd < 0) {
-//        fprintf(stderr, "Socket creation error\nError #: %d\n", errno);
-//        return -1;
-//    }
-//
-//    serverAddr.sin_family = AF_INET;
-//    serverAddr.sin_port = htons(port);
-//
-//    if (inet_pton(AF_INET, ipAddress.c_str(), &serverAddr.sin_addr) < 1) {
-//        fprintf(stderr, "Invalid IP address provided\nError #: %d\n", errno);
-//        return -1;
-//    }
-//
-//    if (connect(sockfd, (struct sockaddr *) &serverAddr, sizeof(serverAddr)) < 0) {
-//        fprintf(stderr, "Failed to connect to %s:%d\nError #: %d\n", ipAddress.c_str(), port, errno);
-//        return -1;
-//    }
-//
-//    if (verbose) {
-//        printf("Connection made to %s:%d\n", ipAddress.c_str(), port);
-//    }
-//
-//    return sockfd;
-//}
-//
-//// Open socket to receive data and return socket file descriptor. If return < 0, then an error occurred
+
+//// Open socket to receive data and return socket filePath descriptor. If return < 0, then an error occurred
 //int startServer(string ipAddress, int port) {
 //    int option = 1;
 //    char *clientIP;
@@ -306,30 +284,8 @@ int main(int argc, char *argv[]) {
 //    return acceptfd;
 //}
 
-// Encrypt or decrypt provided data by XOR'ing data with provided key
-int toggleEncryption(char *buffer, int length, string key, int offset) {
-    int i;
-    for (i = 0; i < length; i++) {
-        buffer[i] = buffer[i] ^ key[(i + offset) % key.length()];
-    }
-
-    return (i + offset) % key.length();
-}
-
-// Discover the localhost's ip address by resolving it's hostname
-string getLocalAddress() {
-    char hostname[256];
-    char *ipAddress;
-
-    gethostname(hostname, sizeof(hostname));
-    ipAddress = inet_ntoa(*((struct in_addr *) gethostbyname(
-            hostname)->h_addr_list[0])); // returns a static char array so no need to free
-
-    return ipAddress;
-}
-
-// Invoke local md5sum to get digital signature of provided file
-string checkSum(string data) {
+// Invoke local md5sum to get digital signature of provided filePath
+string md5(string data) {
     string command = "/usr/bin/md5sum " + data;
     FILE *pipe = popen(command.c_str(), "r");
 

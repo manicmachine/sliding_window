@@ -13,6 +13,7 @@
 #include <netdb.h>
 
 #include "Packet.h"
+#include "boost/crc.hpp"
 
 using namespace std;
 
@@ -21,17 +22,14 @@ class PacketBuilder {
     struct sockaddr_in srcAddr;
     struct sockaddr_in destAddr;
     unsigned short wSize;
-    uint_fast32_t chksum;
+    bool brokenChksum = false;
+    boost::crc_32_type chksum;
     bool ack = false;
     bool syn = false;
     bool fin = false;
     char *payload;
 
-//    template<typename InputIterator>
-//    uint_fast32_t generateChksum(InputIterator first, InputIterator last);
-//
-//    array<std::uint_fast32_t, 256> generateCrcLookupTable();
-
+    void generateChksum(Packet pkt, bool broken = false);
 public:
     void setSqn(unsigned int sqn);
 
@@ -41,9 +39,9 @@ public:
 
     void setWSize(unsigned short wSize);
 
-    void setChksum(uint_fast32_t chksum);
-
     void setPayload(char *buffer);
+
+    void enableBrokenChksum();
 
     void enableAckBit();
 
