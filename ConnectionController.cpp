@@ -2,10 +2,14 @@
 // Created by csather on 4/4/21.
 //
 
+#include <thread>
+
 #include "ConnectionController.h"
 
+using namespace std;
+
 // Open socket and connect with server, returning the socket filePath descriptor. If return < 0, then an error occurred
-int ConnectionController::openConnection(string ipAddress, ConnectionInfo connInfo) {
+int ConnectionController::openConnection(string ipAddress, ConnectionSettings connInfo) {
     struct Connection connection{};
 
     // TODO: Finish implementing
@@ -40,9 +44,18 @@ int ConnectionController::openConnection(string ipAddress, ConnectionInfo connIn
 //    return sockfd;
 }
 
-void ConnectionController::openConnections(vector<string> ipAddresses, ConnectionInfo connInfo) {
+void ConnectionController::openConnections(vector<string> ipAddresses, ConnectionSettings connectionSettings) {
     for (auto &ipAddress : ipAddresses) {
-        openConnection(ipAddress, connInfo);
+        openConnection(ipAddress, connectionSettings);
     }
 }
+
+void ConnectionController::setupWorkers(int numWorkers) {
+    for (int i = 0; i < numWorkers; i++) {
+        std::thread worker(handleConnections);
+        worker.detach();
+        connectionWorkers.emplace_back(worker);
+    }
+}
+
 

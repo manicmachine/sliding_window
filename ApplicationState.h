@@ -8,7 +8,7 @@
 #include <sys/stat.h>
 #include <vector>
 
-#include "ConnectionInfo.h"
+#include "ConnectionSettings.h"
 
 using namespace std;
 
@@ -19,14 +19,12 @@ enum Role {
 struct ApplicationState {
     bool verbose = false;
     Role role = NO_ROLE;
-    struct ConnectionInfo connInfo{};
+    struct ConnectionSettings connectionSettings{};
 
     vector<string> ipAddresses;
 
     string filePath;
     struct stat fileStats{};
-    FILE *file;
-    size_t bytesRead = 0;
 };
 
 #endif //SLIDING_WINDOW_APPLICATIONSTATE_H

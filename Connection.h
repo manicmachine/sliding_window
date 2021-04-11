@@ -13,10 +13,14 @@
 #include "PacketInfo.h"
 
 struct Connection {
-    struct sockaddr_in sockaddr;
+    struct sockaddr_in sockaddr = {0,0,0,0};
     int sockfd;
-    unsigned char wSize; // (R|S)WS
+    unsigned short wSize; // (R|S)WS - need separate wsize to track negotiated wSizes as they may differ from what the user specified
     unsigned int pktSizeBytes;
+    unsigned int minPktsNeeded;
+    unsigned int pktsSent;
+    time_t timeConnectionStarted;
+    FILE *file; // the file being read or written
 
     union lastRec {
         unsigned int lastAckRec; // LAR

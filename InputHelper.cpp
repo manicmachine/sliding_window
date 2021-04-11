@@ -39,7 +39,7 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
             // Set port
             if (strcmp(argv[i], "--port") == 0 || strcmp(argv[i], "port") == 0) {
                 try {
-                    appState->connInfo.port = stoi(argv[i + 1]);
+                    appState->connectionSettings.port = stoi(argv[i + 1]);
                 } catch (invalid_argument &e) {
                     fprintf(stderr, "Invalid port provided: Error parsing value.\n");
                     exit(-1);
@@ -59,8 +59,8 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
 
             // Set protocol
             if (strcmp(argv[i], "--gbn") == 0 || strcmp(argv[i], "gbn") == 0) {
-                if (appState->connInfo.protocol == NO_PROTO) {
-                    appState->connInfo.protocol = GBN;
+                if (appState->connectionSettings.protocol == NO_PROTO) {
+                    appState->connectionSettings.protocol = GBN;
                 } else {
                     fprintf(stderr, "Invalid protocol provided: A protocol is already set.\n");
                     exit(-1);
@@ -68,8 +68,8 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
             }
 
             if (strcmp(argv[i], "--sr") == 0 || strcmp(argv[i], "sr") == 0) {
-                if (appState->connInfo.protocol == NO_PROTO) {
-                    appState->connInfo.protocol = SR;
+                if (appState->connectionSettings.protocol == NO_PROTO) {
+                    appState->connectionSettings.protocol = SR;
                 } else {
                     fprintf(stderr, "Invalid protocol provided:A protocol is already set.\n");
                     exit(-1);
@@ -82,7 +82,7 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
                     tmp = stoi(argv[i + 1]);
 
                     if (tmp > 0 && tmp < 65) {
-                        appState->connInfo.pktSize = tmp;
+                        appState->connectionSettings.pktSize = tmp;
                     } else {
                         fprintf(stderr, "Invalid packet size provided: Value must be between 0 and 65 KB\n");
                         exit(-1);
@@ -99,7 +99,7 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
                     tmp = stoi(argv[i + 1]);
 
                     if (tmp > 0) {
-                        appState->connInfo.timeoutInterval = tmp;
+                        appState->connectionSettings.timeoutInterval = tmp;
                     } else {
                         fprintf(stderr, "Invalid timeout interval provided: Value must be positive.\n");
                         exit(-1);
@@ -120,8 +120,8 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
                 try {
                     tmp = stoi(argv[i + 1]);
 
-                    if (tmp > 0 && tmp < 65) {
-                        appState->connInfo.wSize = tmp;
+                    if (tmp > 0 && tmp < 513) {
+                        appState->connectionSettings.wSize = tmp;
                     } else {
                         fprintf(stderr, "Invalid window size provided: Value must be between 0 and 65.\n");
                         exit(-1);
@@ -139,9 +139,9 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
 
                     if (tmp > 0 && tmp < 33) {
                         if (tmp == 32) {
-                            appState->connInfo.sqnRange = -1; // assigning an unsigned int to -1 results in it containing its maximum value
+                            appState->connectionSettings.sqnRange = -1; // assigning an unsigned int to -1 results in it containing its maximum value
                         } else {
-                            appState->connInfo.sqnRange = (1 << tmp) - 1;
+                            appState->connectionSettings.sqnRange = (1 << tmp) - 1;
                         }
                     } else {
                         fprintf(stderr, "Invalid sequence range provided: Value must be between 0 and 33 bits.\n");
@@ -161,7 +161,7 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
                     tmp_f = stof(argv[i + 1]);
 
                     if (tmp_f >= 0 && tmp_f <= 100) {
-                        appState->connInfo.damageProb = tmp_f;
+                        appState->connectionSettings.damageProb = tmp_f;
                     } else {
                         fprintf(stderr, "Invalid damage/lost probability provided: Value must be from 0 to 100.\n");
                         exit(-1);
@@ -175,7 +175,7 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
             // Situational errors - Damage/lost packets
             if (strcmp(argv[i], "--dls") == 0 || strcmp(argv[i], "dls") == 0) {
                 string seq = argv[i + 1];
-                if (parseDamagedPacketSeq(&seq, &appState->connInfo.damagedPackets) < 0) {
+                if (parseDamagedPacketSeq(&seq, &appState->connectionSettings.damagedPackets) < 0) {
                     fprintf(stderr, "Invalid packet sequence provided: Error parsing values.\n");
                     exit(-1);
                 }
@@ -187,7 +187,7 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
                     tmp = stoi(argv[i + 1]);
 
                     if (tmp > 0) {
-                        appState->connInfo.maxConnections = tmp;
+                        appState->connectionSettings.maxConnections = tmp;
                     } else {
                         fprintf(stderr, "Invalid max number of connections provided: Value must be positive integer.\n");
                         exit(-1);
@@ -262,20 +262,20 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
     }
 
     input.clear();
-    if (appState->connInfo.port == 0) {
+    if (appState->connectionSettings.port == 0) {
         printf("Enter Port to connect to (Default: 9000): ");
 
-        while (appState->connInfo.port == 0) {
+        while (appState->connectionSettings.port == 0) {
             try {
                 getline(cin, input);
                 if (input.empty()) {
-                    appState->connInfo.port = 9000;
+                    appState->connectionSettings.port = 9000;
                     break;
                 }
 
                 tmp = stoi(input);
 
-                appState->connInfo.port = tmp;
+                appState->connectionSettings.port = tmp;
             } catch (invalid_argument &e) {
                 printf("Invalid value entered\n");
             }
@@ -315,18 +315,18 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
     }
 
     input.clear();
-    if (appState->connInfo.protocol == NO_PROTO) {
+    if (appState->connectionSettings.protocol == NO_PROTO) {
         printf("Select protocol:\n");
         printf("\t1 - Selective Repeat (Default)\n");
         printf("\t2 - Go-Back-N\n");
         printf(">> ");
 
-        while (appState->connInfo.protocol == NO_PROTO) {
+        while (appState->connectionSettings.protocol == NO_PROTO) {
             try {
                 getline(cin, input);
 
                 if (input.empty()) {
-                    appState->connInfo.protocol = SR;
+                    appState->connectionSettings.protocol = SR;
                     break;
                 }
 
@@ -334,10 +334,10 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
 
                 switch (tmp) {
                     case SR:
-                        appState->connInfo.protocol = SR;
+                        appState->connectionSettings.protocol = SR;
                         break;
                     case GBN:
-                        appState->connInfo.protocol = GBN;
+                        appState->connectionSettings.protocol = GBN;
                         break;
                     default:
                         printf("Invalid value entered. Enter either 1 (SR) or 2 (GBN)\n");
@@ -349,21 +349,21 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
     }
 
     input.clear();
-    if (appState->connInfo.pktSize == 0) {
+    if (appState->connectionSettings.pktSize == 0) {
         printf("Enter packet size in KB (Default: 32, Max: 64): ");
 
-        while (appState->connInfo.pktSize == 0) {
+        while (appState->connectionSettings.pktSize == 0) {
             try {
                 getline(cin, input);
                 if (input.empty()) {
-                    appState->connInfo.pktSize = 32;
+                    appState->connectionSettings.pktSize = 32;
                     break;
                 }
 
                 tmp = stoi(input);
 
                 if (tmp > 0 && tmp < 65) {
-                    appState->connInfo.pktSize = tmp;
+                    appState->connectionSettings.pktSize = tmp;
                 } else {
                     printf("Invalid value entered. Packet size must be between 0 and 65\n");
                 }
@@ -375,14 +375,14 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
 
     // TODO: Needed for server?
     input.clear();
-    if (appState->connInfo.timeoutInterval == 0) {
+    if (appState->connectionSettings.timeoutInterval == 0) {
         bool pingTimeout = false;
         printf("Select timeout interval calculation: \n");
         printf("\t1 - Ping calculated (Default)\n");
         printf("\t2 - User specified\n");
         printf(">> ");
 
-        while (appState->connInfo.timeoutInterval == 0 && !pingTimeout) {
+        while (appState->connectionSettings.timeoutInterval == 0 && !pingTimeout) {
             getline(cin, input);
 
             if (input.empty()) {
@@ -398,7 +398,7 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
                 } else if (tmp == 2) {
                     printf("Enter timeout interval (ms): ");
 
-                    while (appState->connInfo.timeoutInterval == 0) {
+                    while (appState->connectionSettings.timeoutInterval == 0) {
                         getline(cin, input);
 
                         if (input.empty()) {
@@ -410,7 +410,7 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
                             tmp = stoi(input);
 
                             if (tmp > 0) {
-                                appState->connInfo.timeoutInterval = tmp;
+                                appState->connectionSettings.timeoutInterval = tmp;
                             } else {
                                 printf("Invalid value entered. Enter a positive integer\n");
                             }
@@ -432,42 +432,42 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
     }
 
     input.clear();
-    if (appState->connInfo.wSize == 0 && appState->connInfo.protocol != GBN) {
-        printf("Enter the window size (Default: 8, Max: 64): ");
+    if (appState->connectionSettings.wSize == 0 && appState->connectionSettings.protocol != GBN) {
+        printf("Enter the window size (Default: 8, Max: 512): ");
 
-        while (appState->connInfo.wSize == 0) {
+        while (appState->connectionSettings.wSize == 0) {
             getline(cin, input);
 
             if (input.empty()) {
-                appState->connInfo.wSize = 8;
+                appState->connectionSettings.wSize = 8;
                 break;
             }
 
             try {
                 tmp = stoi(input);
 
-                if (tmp > 0 && tmp < 65) {
-                    appState->connInfo.wSize = tmp;
+                if (tmp > 0 && tmp < 513) {
+                    appState->connectionSettings.wSize = tmp;
                 } else {
-                    printf("Invalid value entered. Enter a value between 0 and 65\n");
+                    printf("Invalid value entered. Enter a value from 1 to 512\n");
                 }
             } catch (invalid_argument &e) {
-                printf("Invalid value entered. Enter a value between 0 and 65\n");
+                printf("Invalid value entered. Enter a value from 1 to 512\n");
             }
         }
-    } else if (appState->connInfo.protocol == GBN) {
-        appState->connInfo.wSize = 1;
+    } else if (appState->connectionSettings.protocol == GBN) {
+        appState->connectionSettings.wSize = 1;
     }
 
     input.clear();
-    if (appState->connInfo.sqnRange == 0) {
+    if (appState->connectionSettings.sqnRange == 0) {
         printf("Enter the number of bits to be used for the sequence number (Default: 8, Max: 32): ");
 
-        while (appState->connInfo.sqnRange == 0) {
+        while (appState->connectionSettings.sqnRange == 0) {
             getline(cin, input);
 
             if (input.empty()) {
-                appState->connInfo.sqnRange = (1 << 8) - 1;
+                appState->connectionSettings.sqnRange = (1 << 8) - 1;
                 break;
             }
 
@@ -477,9 +477,9 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
                 if (tmp > 0 && tmp < 33) {
                     if (tmp == 32) {
                         // assigning an unsigned int to -1 results in it containing its maximum value
-                        appState->connInfo.sqnRange = -1;
+                        appState->connectionSettings.sqnRange = -1;
                     } else {
-                        appState->connInfo.sqnRange = (1 << tmp) - 1;
+                        appState->connectionSettings.sqnRange = (1 << tmp) - 1;
                     }
                 } else {
                     printf("Invalid value entered. Enter a value between 0 and 33\n");
@@ -508,19 +508,19 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
 
         input.clear();
         printf("Enter packet damage/lost probability (Default: 0, MAX: 100): ");
-        while (appState->connInfo.damageProb == -1) {
+        while (appState->connectionSettings.damageProb == -1) {
             getline(cin, input);
 
             if (input.empty()) {
-                appState->connInfo.damageProb = 0;
+                appState->connectionSettings.damageProb = 0;
                 break;
             }
 
             try {
                 // Store directly into appState->damageProb since tmp would be a narrowing conversion
-                appState->connInfo.damageProb = stof(input);
-                if (appState->connInfo.damageProb < 0 || appState->connInfo.damageProb > 100) {
-                    appState->connInfo.damageProb = -1;
+                appState->connectionSettings.damageProb = stof(input);
+                if (appState->connectionSettings.damageProb < 0 || appState->connectionSettings.damageProb > 100) {
+                    appState->connectionSettings.damageProb = -1;
                     printf("Invalid value entered. Enter a percentage value from 0 to 100\n");
                 }
             } catch (invalid_argument &e) {
@@ -530,13 +530,13 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
 
         input.clear();
         printf("Enter a comma-separated sequence of damaged/lost packets (Default: None): ");
-        while (appState->connInfo.damagedPackets.empty()) {
+        while (appState->connectionSettings.damagedPackets.empty()) {
             getline(cin, input);
 
             if (input.empty()) {
                 break;
             } else {
-                if (parseDamagedPacketSeq(&input, &appState->connInfo.damagedPackets) < 0) {
+                if (parseDamagedPacketSeq(&input, &appState->connectionSettings.damagedPackets) < 0) {
                     printf("Invalid values entered. Enter a comma-separated sequence of integers representing sequence numbers\n");
                 }
             }

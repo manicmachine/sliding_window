@@ -29,10 +29,10 @@ int main(int argc, char *argv[]) {
             printf("\t%s\n", ipAddress.c_str());
         }
 
-        printf("Port: %i\n", appState.connInfo.port);
+        printf("Port: %i\n", appState.connectionSettings.port);
         printf("File path: %s\n", appState.filePath.c_str());
 
-        switch(appState.connInfo.protocol) {
+        switch(appState.connectionSettings.protocol) {
             case GBN:
                 printf("Protocol: GBN\n");
                 break;
@@ -43,16 +43,25 @@ int main(int argc, char *argv[]) {
                 break;
         }
 
-        printf("Packet size (KB): %i\n", appState.connInfo.pktSize);
-        printf("Timeout interval (ms): %lu\n", appState.connInfo.timeoutInterval);
-        printf("Window size: %i\n", appState.connInfo.wSize);
-        printf("Sequence range: %i\n", appState.connInfo.sqnRange);
-        printf("Damage/lost probability: %g\n", appState.connInfo.damageProb);
+        printf("Packet size (KB): %i\n", appState.connectionSettings.pktSize);
+        printf("Timeout interval (ms): %lu\n", appState.connectionSettings.timeoutInterval);
+        printf("Window size: %i\n", appState.connectionSettings.wSize);
+        printf("Sequence range: %i\n", appState.connectionSettings.sqnRange);
+        printf("Damage/lost probability: %g\n", appState.connectionSettings.damageProb);
         printf("Damage/lost packets:\n");
 
-        for (int damagedPacket : appState.connInfo.damagedPackets) {
+        for (int damagedPacket : appState.connectionSettings.damagedPackets) {
             printf("\t%i\n", damagedPacket);
         }
+    }
+
+    // Begin transfer
+    if (appState.role == CLIENT) {
+        // If client, open connections to specified servers and transfer the file
+        connectionController->openConnections(appState.ipAddresses, appState.connectionSettings);
+    } else {
+        // If server, begin listening for connections from specified ip address and process file transfer
+        connectionController->startServer(appState.ipAddresses, appState.connectionSettings);
     }
 
 
@@ -224,8 +233,8 @@ int main(int argc, char *argv[]) {
 //    int option = 1;
 //    char *clientIP;
 //    struct sockaddr_in serverAddr = {0, 0, 0, 0};
-//    struct sockaddr_in connInfo = {0, 0, 0, 0};
-//    socklen_t connInfoSize = sizeof(connInfo);
+//    struct sockaddr_in connectionSettings = {0, 0, 0, 0};
+//    socklen_t connInfoSize = sizeof(connectionSettings);
 //    int sockfd = socket(AF_INET, SOCK_STREAM, 0), acceptfd;
 //
 //    if (sockfd < 0) {
@@ -258,8 +267,8 @@ int main(int argc, char *argv[]) {
 //
 //    // Loop over incoming connections until a connection arrives from the specified ip address
 //    do {
-//        acceptfd = accept(sockfd, (struct sockaddr *) &connInfo, &connInfoSize);
-//        clientIP = inet_ntoa(connInfo.sin_addr);
+//        acceptfd = accept(sockfd, (struct sockaddr *) &connectionSettings, &connInfoSize);
+//        clientIP = inet_ntoa(connectionSettings.sin_addr);
 //
 //        if (verbose) {
 //            printf("Attempted connection from %s\n", clientIP);
@@ -275,10 +284,10 @@ int main(int argc, char *argv[]) {
 //            return -1;
 //        }
 //
-//        if (verbose && (connInfo.sin_addr.s_addr == serverAddr.sin_addr.s_addr)) {
+//        if (verbose && (connectionSettings.sin_addr.s_addr == serverAddr.sin_addr.s_addr)) {
 //            printf("Connection established.\n");
 //        }
-//    } while (connInfo.sin_addr.s_addr != serverAddr.sin_addr.s_addr);
+//    } while (connectionSettings.sin_addr.s_addr != serverAddr.sin_addr.s_addr);
 //
 //    close(sockfd);
 //    return acceptfd;
