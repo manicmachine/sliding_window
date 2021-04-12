@@ -8,7 +8,7 @@
 
 struct PacketInfo {
     struct Packet *pkt;
-    time_t timeout;
+    timeval timeout;
     unsigned char count; // tracks the number of times this packet was sent/acked
 };
 

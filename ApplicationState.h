@@ -21,6 +21,9 @@ struct ApplicationState {
     Role role = NO_ROLE;
     struct ConnectionSettings connectionSettings{};
 
+    /* Server - List of IP Addresses from which to accept connections
+     * Client - List of IP Address to creation connections to
+     */
     vector<string> ipAddresses;
 
     string filePath;

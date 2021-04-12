@@ -1,6 +1,7 @@
 //
 // Created by csather on 3/21/21.
 //
+#include <vector>
 
 #include "PacketBuilder.h"
 
@@ -36,32 +37,46 @@ void PacketBuilder::enableFinBit() {
     fin = true;
 }
 
-void PacketBuilder::setPayload(char *buffer) {
-    payload = buffer;
+void PacketBuilder::setPktSize(unsigned int pktSize) {
+    pktSize = pktSize;
 }
 
-void PacketBuilder::generateChksum(Packet pkt, bool broken) {
+void PacketBuilder::setPayload(string buffer) {
+    vector<char> convBuffer(buffer.begin(), buffer.end());
+    convBuffer.push_back('\0');
+    convBuffer.resize(pktSize, 0);
+
+    payload = &convBuffer[0];
+}
+
+int PacketBuilder::generateChksum(Packet pkt, bool broken) {
+    boost::crc_32_type chksum;
+
     if (broken) {
         // Generate a broken checksum by shifting the byte boundaries used by the checksum generator
         chksum.process_bytes(&pkt + 4, sizeof(pkt) - 4);
     } else {
         chksum.process_bytes(&pkt, sizeof(pkt));
     }
+
+    return chksum.checksum();
 }
 
 struct Packet PacketBuilder::buildPacket() {
-    struct Packet pkt{};
-    pkt.header.sqn = sqn;
+    Packet pkt{};
+
     pkt.header.srcAddr = srcAddr;
     pkt.header.destAddr = destAddr;
+    pkt.header.sqn = sqn;
     pkt.header.wSize = wSize;
+    pkt.header.pktSize = pktSize;
+    pkt.header.chksum = 0;
 
-    if (ack) pkt.header.flags.ack = 1;
-    if (syn) pkt.header.flags.syn = 1;
-    if (fin) pkt.header.flags.fin = 1;
+    pkt.header.flags.ack = (ack ? '1' : '0');
+    pkt.header.flags.syn = (syn ? '1' : '0');
+    pkt.header.flags.fin = (fin ? '1' : '0');
 
-    pkt.payload = payload;
-    generateChksum(pkt, brokenChksum);
+    pkt.header.chksum = generateChksum(pkt);
 
     return pkt;
 }

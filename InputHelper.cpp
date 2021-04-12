@@ -3,9 +3,11 @@
 //
 #include <iostream>
 #include <fstream>
+#include <filesystem>
 #include <string.h>
 
 #include "boost/asio.hpp"
+#include "ConnectionController.h"
 #include "InputHelper.h"
 
 using namespace std;
@@ -22,7 +24,7 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
             }
 
             // Set verbose
-            if (strcmp(argv[i], "--verbose") == 0 || strcmp(argv[i], "verbose") == 0 || strcmp(argv[i], "v") == 0) {
+            if (strcmp(argv[i], "--verbose") == 0 || strcmp(argv[i], "verbose") == 0 || strcmp(argv[i], "--v") == 0 || strcmp(argv[i], "v") == 0) {
                 printf("Verbose: ON\n");
                 appState->verbose = true;
             }
@@ -53,6 +55,11 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
                 if (stat(appState->filePath.c_str(), &appState->fileStats) != 0) {
                     fprintf(stderr, "Invalid file path provided: Unable to access file path.\n");
                     exit(-1);
+                } else {
+                    if (appState->role == CLIENT) {
+                        // FIXME
+//                        appState->filePath = filesystem::path(appState->filePath).filename();
+                    }
                 }
             }
 
@@ -99,7 +106,7 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
                     tmp = stoi(argv[i + 1]);
 
                     if (tmp > 0) {
-                        appState->connectionSettings.timeoutInterval = tmp;
+                        appState->connectionSettings.timeoutInterval.tv_usec = tmp * 1000;
                     } else {
                         fprintf(stderr, "Invalid timeout interval provided: Value must be positive.\n");
                         exit(-1);
@@ -112,7 +119,8 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
 
             // Set timeout interval (ping calculated)
             if (strcmp(argv[i], "--tip") == 0 || strcmp(argv[i], "tip") == 0) {
-                // TODO: Set timeout interval to ping calculated value
+                ConnectionController connectionController(*appState);
+                appState->connectionSettings.timeoutInterval = connectionController.generatePingBasedTimeout();
             }
 
             // Set sliding window size
@@ -153,8 +161,8 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
                 }
             }
 
-            // Situational errors - Damage/lost probability
-            if (strcmp(argv[i], "--dlp") == 0 || strcmp(argv[i], "dlp") == 0) {
+            // Situational errors - Damage probability
+            if (strcmp(argv[i], "--dp") == 0 || strcmp(argv[i], "dp") == 0) {
                 float tmp_f = 0.0;
 
                 try {
@@ -163,19 +171,47 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
                     if (tmp_f >= 0 && tmp_f <= 100) {
                         appState->connectionSettings.damageProb = tmp_f;
                     } else {
-                        fprintf(stderr, "Invalid damage/lost probability provided: Value must be from 0 to 100.\n");
+                        fprintf(stderr, "Invalid damage probability provided: Value must be from 0 to 100.\n");
                         exit(-1);
                     }
                 } catch (invalid_argument &e) {
-                    fprintf(stderr, "Invalid damage/lost probability provided: Error parsing value.\n");
+                    fprintf(stderr, "Invalid damage probability provided: Error parsing value.\n");
                     exit(-1);
                 }
             }
 
-            // Situational errors - Damage/lost packets
+            // Situational errors - Damage packets
             if (strcmp(argv[i], "--dls") == 0 || strcmp(argv[i], "dls") == 0) {
                 string seq = argv[i + 1];
                 if (parseDamagedPacketSeq(&seq, &appState->connectionSettings.damagedPackets) < 0) {
+                    fprintf(stderr, "Invalid damaged packet sequence provided: Error parsing values.\n");
+                    exit(-1);
+                }
+            }
+
+            // Situational errors - Lost ACK probability
+            if (strcmp(argv[i], "--lp") == 0 || strcmp(argv[i], "lp") == 0) {
+                float tmp_f = 0.0;
+
+                try {
+                    tmp_f = stof(argv[i + 1]);
+
+                    if (tmp_f >= 0 && tmp_f <= 100) {
+                        appState->connectionSettings.lostProb = tmp_f;
+                    } else {
+                        fprintf(stderr, "Invalid lost probability provided: Value must be from 0 to 100.\n");
+                        exit(-1);
+                    }
+                } catch (invalid_argument &e) {
+                    fprintf(stderr, "Invalid lost probability provided: Error parsing value.\n");
+                    exit(-1);
+                }
+            }
+
+            // Situational errors - Lost ACKs
+            if (strcmp(argv[i], "--ls") == 0 || strcmp(argv[i], "ls") == 0) {
+                string seq = argv[i + 1];
+                if (parseDamagedPacketSeq(&seq, &appState->connectionSettings.lostAcks) < 0) {
                     fprintf(stderr, "Invalid packet sequence provided: Error parsing values.\n");
                     exit(-1);
                 }
@@ -373,62 +409,89 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
         }
     }
 
-    // TODO: Needed for server?
     input.clear();
-    if (appState->connectionSettings.timeoutInterval == 0) {
-        bool pingTimeout = false;
-        printf("Select timeout interval calculation: \n");
-        printf("\t1 - Ping calculated (Default)\n");
-        printf("\t2 - User specified\n");
-        printf(">> ");
+    if (appState->connectionSettings.timeoutInterval.tv_usec == 0) {
+        if (appState->role == CLIENT) {
+            bool pingTimeout = false;
+            printf("Select timeout interval calculation: \n");
+            printf("\t1 - Ping calculated (Default)\n");
+            printf("\t2 - User specified\n");
+            printf(">> ");
 
-        while (appState->connectionSettings.timeoutInterval == 0 && !pingTimeout) {
-            getline(cin, input);
+            while (appState->connectionSettings.timeoutInterval.tv_usec == 0 && !pingTimeout) {
+                getline(cin, input);
 
-            if (input.empty()) {
-                pingTimeout = true;
-                break;
-            }
-
-            try {
-                tmp = stoi(input);
-
-                if (tmp == 1) {
+                if (input.empty()) {
                     pingTimeout = true;
-                } else if (tmp == 2) {
-                    printf("Enter timeout interval (ms): ");
+                    break;
+                }
 
-                    while (appState->connectionSettings.timeoutInterval == 0) {
-                        getline(cin, input);
+                try {
+                    tmp = stoi(input);
 
-                        if (input.empty()) {
-                            printf("No value was entered\n");
-                            continue;
-                        }
+                    if (tmp == 1) {
+                        pingTimeout = true;
+                    } else if (tmp == 2) {
+                        printf("Enter timeout interval (ms) (Default: 1000): ");
 
-                        try {
-                            tmp = stoi(input);
+                        while (appState->connectionSettings.timeoutInterval.tv_usec == 0) {
+                            getline(cin, input);
 
-                            if (tmp > 0) {
-                                appState->connectionSettings.timeoutInterval = tmp;
-                            } else {
+                            if (input.empty()) {
+                                appState->connectionSettings.timeoutInterval.tv_sec = 1000 * 1000;
+                                break;
+                            }
+
+                            try {
+                                tmp = stoi(input);
+
+                                if (tmp > 0) {
+                                    appState->connectionSettings.timeoutInterval.tv_usec = tmp * 1000;
+                                } else {
+                                    printf("Invalid value entered. Enter a positive integer\n");
+                                }
+                            } catch (invalid_argument &e) {
                                 printf("Invalid value entered. Enter a positive integer\n");
                             }
-                        } catch (invalid_argument &e) {
-                            printf("Invalid value entered. Enter a positive integer\n");
                         }
+                    } else {
+                        printf("Invalid value entered. Select either ping calculated (1) or user specified (2)\n");
                     }
-                } else {
+                } catch (invalid_argument &e) {
                     printf("Invalid value entered. Select either ping calculated (1) or user specified (2)\n");
                 }
-            } catch (invalid_argument &e) {
-                printf("Invalid value entered. Select either ping calculated (1) or user specified (2)\n");
+            }
+
+            if (pingTimeout) {
+                ConnectionController connectionController(*appState);
+                printf("Performing ping test. Please wait...\n");
+                appState->connectionSettings.timeoutInterval = connectionController.generatePingBasedTimeout();
+                printf("Ping-based timeout (ms): %li", (appState->connectionSettings.timeoutInterval.tv_usec / 1000));
+            }
+        } else {
+            printf("Enter connection TTL (ms) (Default: 5000): ");
+
+            while (appState->connectionSettings.timeoutInterval.tv_usec == 0) {
+                try {
+                    getline(cin, input);
+                    if (input.empty()) {
+                        appState->connectionSettings.timeoutInterval.tv_usec = 5000 * 1000;
+                        break;
+                    }
+
+                    tmp = stoi(input);
+
+                    if (tmp > 0) {
+                        appState->connectionSettings.timeoutInterval.tv_usec = tmp * 1000;
+                    } else {
+                        printf("Invalid value entered. Enter a positive integer\n");
+                    }
+                } catch (invalid_argument &e) {
+                    printf("Invalid value entered. Enter a positive integer\n");
+                }
             }
         }
 
-        if (pingTimeout) {
-            // TODO: Implement ping calculated timeout interval
-        }
     }
 
     input.clear();
@@ -491,23 +554,24 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
     }
 
     input.clear();
-    if (!enableDamage) {
-        while (true) {
-            printf("Enable damaged packets (y/n) (Default: n)? ");
-            getline(cin, input);
+    while (true) {
+        printf("Enable damaged packets (y/n) (Default: n)? ");
+        getline(cin, input);
 
-            if (input.empty() || input.compare("n") == 0) {
-                return;
-            } else if (input.compare("y") == 0) {
-                enableDamage = true;
-                break;
-            } else {
-                printf("Invalid value entered. Enter either y or n\n");
-            }
+        if (input.empty() || input.compare("n") == 0) {
+            enableDamage = false;
+            break;
+        } else if (input.compare("y") == 0) {
+            enableDamage = true;
+            break;
+        } else {
+            printf("Invalid value entered. Enter either y or n\n");
         }
+    }
 
+    if (enableDamage) {
         input.clear();
-        printf("Enter packet damage/lost probability (Default: 0, MAX: 100): ");
+        printf("Enter packet damage probability (Default: 0, MAX: 100): ");
         while (appState->connectionSettings.damageProb == -1) {
             getline(cin, input);
 
@@ -529,7 +593,29 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
         }
 
         input.clear();
-        printf("Enter a comma-separated sequence of damaged/lost packets (Default: None): ");
+        printf("Enter lost ACK probability (Default: 0, MAX: 100): ");
+        while (appState->connectionSettings.lostProb == -1) {
+            getline(cin, input);
+
+            if (input.empty()) {
+                appState->connectionSettings.lostProb = 0;
+                break;
+            }
+
+            try {
+                // Store directly into appState->damageProb since tmp would be a narrowing conversion
+                appState->connectionSettings.lostProb = stof(input);
+                if (appState->connectionSettings.lostProb < 0 || appState->connectionSettings.lostProb > 100) {
+                    appState->connectionSettings.lostProb = -1;
+                    printf("Invalid value entered. Enter a percentage value from 0 to 100\n");
+                }
+            } catch (invalid_argument &e) {
+                printf("Invalid value entered. Enter a percentage value from 0 to 100\n");
+            }
+        }
+
+        input.clear();
+        printf("Enter a comma-separated sequence of damaged packets (Default: None): ");
         while (appState->connectionSettings.damagedPackets.empty()) {
             getline(cin, input);
 
@@ -541,6 +627,23 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
                 }
             }
         }
+
+        input.clear();
+        printf("Enter a comma-separated sequence of lost ACKs (Default: None): ");
+        while (appState->connectionSettings.lostAcks.empty()) {
+            getline(cin, input);
+
+            if (input.empty()) {
+                break;
+            } else {
+                if (parseDamagedPacketSeq(&input, &appState->connectionSettings.lostAcks) < 0) {
+                    printf("Invalid values entered. Enter a comma-separated sequence of integers representing sequence numbers\n");
+                }
+            }
+        }
+    } else {
+      appState->connectionSettings.damageProb = 0;
+      appState->connectionSettings.lostProb = 0;
     }
 }
 

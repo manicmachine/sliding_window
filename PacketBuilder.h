@@ -23,14 +23,17 @@ class PacketBuilder {
     struct sockaddr_in destAddr;
     unsigned short wSize;
     bool brokenChksum = false;
-    boost::crc_32_type chksum;
     bool ack = false;
     bool syn = false;
     bool fin = false;
+    int pktSize;
     char *payload;
 
-    void generateChksum(Packet pkt, bool broken = false);
 public:
+    static int generateChksum(Packet pkt, bool broken = false);
+
+    void setPktSize(unsigned int pktSize);
+
     void setSqn(unsigned int sqn);
 
     void setSrcAddr(struct sockaddr_in srcAddr);
@@ -39,7 +42,7 @@ public:
 
     void setWSize(unsigned short wSize);
 
-    void setPayload(char *buffer);
+    void setPayload(string buffer);
 
     void enableBrokenChksum();
 

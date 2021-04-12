@@ -5,6 +5,7 @@
 #ifndef SLIDING_WINDOW_CONNECTION_H
 #define SLIDING_WINDOW_CONNECTION_H
 
+#include <sys/time.h>
 #include <vector>
 #include <queue>
 #include <netdb.h>
@@ -12,15 +13,22 @@
 #include "Packet.h"
 #include "PacketInfo.h"
 
+enum Status {PENDING, OPEN, CLOSED, ERROR};
+
 struct Connection {
-    struct sockaddr_in sockaddr = {0,0,0,0};
+    Status status = PENDING;
+    struct sockaddr_in srcAddr {0,0,0,0};
+    struct sockaddr_in destAddr = {0, 0, 0, 0};
     int sockfd;
-    unsigned short wSize; // (R|S)WS - need separate wsize to track negotiated wSizes as they may differ from what the user specified
+    unsigned int sqn;
+    unsigned short wSize; // (R|S)WS
     unsigned int pktSizeBytes;
     unsigned int minPktsNeeded;
-    unsigned int pktsSent;
-    time_t timeConnectionStarted;
+    unsigned int pktsSent = 0;
+    timeval timeoutInterval{0};
+    timeval timeConnectionStarted;
     FILE *file; // the file being read or written
+//    size_t bytesRead;
 
     union lastRec {
         unsigned int lastAckRec; // LAR
@@ -35,10 +43,10 @@ struct Connection {
 
     // packet buffer
     // Packets inserted at the index (sqn % wSize) with the next in-order packet being (sqn % wSize) + 1
-    vector<Packet> pktBuffer;
+    vector<PacketInfo> pktBuffer;
 
     // timeout queue
-    queue<PacketInfo> timeoutQueue;
+    queue<PacketInfo*> timeoutQueue;
 };
 
 
