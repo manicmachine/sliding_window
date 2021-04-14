@@ -299,7 +299,7 @@ Packet ConnectionController::recPacket(Connection &connection, bool &timeout, bo
 
         if (chksum != PacketBuilder::generateChksum(pkt)) {
             badPkt = true;
-            printf("Checksum BAD!\n");
+            printf("Checksum FAILED!\n");
         }
     }
 
@@ -402,18 +402,96 @@ Packet ConnectionController::recAndAck(Connection &connection, bool &timeout, bo
 }
 
 void ConnectionController::transferFile(Connection &connection) {
-    // Client
-    // Read file and send chunks along to server
+    char *fileBuffer = new char[connection.pktSizeBytes];
+    bool timeout = false;
+    bool badPkt = false;
 
-    // Server
+    if (appState->role == CLIENT) {
+        // Client
+        // Read file and send chunks along to server
+        PacketBuilder pktBuilder;
+        pktBuilder.setSrcAddr(connection.srcAddr);
+        pktBuilder.setDestAddr(connection.destAddr);
+        pktBuilder.setSqnBits(connection.sqnBits);
+        pktBuilder.setWSize(connection.wSize);
+
+        do {
+            Packet ackPkt;
+
+            while (connection.lastFrame.lastFrameSent <= (connection.wSize + connection.lastRec.lastAckRec)) {
+                // Create data packet
+                Packet pkt;
+                PacketInfo pktInfo;
+                pktBuilder.setSqn(connection.lastFrame.lastFrameSent++);
+                connection.bytesRead = fread(fileBuffer, sizeof(char), connection.pktSizeBytes, connection.file);
+
+                // If we read less than our packet payload size, then we're on our last packet
+                if (connection.bytesRead < connection.pktSizeBytes) {
+                    pktBuilder.setPktSize(connection.bytesRead);
+                    pktBuilder.enableFinBit();
+                }
+
+                pktBuilder.setPayload(fileBuffer);
+                pkt = pktBuilder.buildPacket();
+                pktInfo = addToPktBuffer(connection, pkt);
+
+                // Send data
+                sendPacket(connection, pktInfo);
+            }
+
+            printWindow(connection);
+
+            // Rec and process ACKs
+            ackPkt = recPacket(connection, timeout, badPkt);
+            if (!timeout && !badPkt && connection.status != ERROR && ackPkt.header.flags.ack == 1) {
+                if (ackPkt.header.sqn == (connection.lastRec.lastAckRec + 1)) connection.lastRec.lastAckRec++;
+
+                // Mark associated packet as ACK'd
+                connection.pktBuffer[ackPkt.header.sqn % connection.wSize];
+
+                // Check if we now have a series of ack'd packets; if so, update lastackrec
+                for (int i = 1; i < connection.wSize; i++) {
+                    if (connection.pktBuffer[(connection.lastRec.lastAckRec + i) % connection.wSize].acked) {
+                        connection.lastRec.lastAckRec++;
+                    } else {
+                        break;
+                    }
+                }
+            } else {
+                // Something went wrong
+            }
+
+            // Process timeouts
+            if (connection.timeoutQueue.front()->timeout < chrono::system_clock::now()) {
+                // Resend packet
+                connection.resentPkts++;
+            }
+        } while((connection.bytesRead == connection.pktSizeBytes && connection.status == OPEN) || !connection.timeoutQueue.empty());
+    } else {
+        // Server
+        // Read chunks and, if out of order, buffer them
+
+        // Write in-order packet payloads to file
+    }
+
+    // Transfer complete
+    // MD5
+    // Summary
+    // - Number of original packets sent
+    // - Number of retransmitted packets
+    // - Total elapsed time
+    // - Total throughput (Mbps)
+    // - Effective throughput
+    delete[] fileBuffer;
 }
 
-//
-void ConnectionController::addToPktBuffer(Connection &connection, Packet pkt) {
+
+PacketInfo ConnectionController::addToPktBuffer(Connection &connection, Packet pkt) {
     PacketInfo pktInfo{};
     pktInfo.pkt = &pkt;
 
     connection.pktBuffer[pkt.header.sqn % connection.wSize] = pktInfo;
+    return pktInfo;
 }
 
 void ConnectionController::handshake(Connection &connection, bool isPing) {
@@ -426,15 +504,16 @@ void ConnectionController::handshake(Connection &connection, bool isPing) {
         PacketBuilder pktBuilder;
         pktBuilder.setSrcAddr(connection.srcAddr);
         pktBuilder.setDestAddr(connection.destAddr);
-        pktBuilder.setSqn(connection.sqn);
         pktBuilder.setSqnBits(connection.sqnBits);
         pktBuilder.setWSize(connection.wSize);
         pktBuilder.setPktSize(connection.pktSizeBytes);
         pktBuilder.enableSynBit();
 
         if (isPing) {
+            pktBuilder.setSqn(0);
             pktBuilder.enablePingBit();
         } else {
+            pktBuilder.setSqn(connection.lastFrame.lastFrameSent++);
             pktBuilder.setPayload(appState->filePath);
         }
 
@@ -509,10 +588,23 @@ timeval ConnectionController::toTimeval(chrono::microseconds value) {
 
     return tv;
 }
-// Determines if something should happen to a packet due to a given probability
 
+// Determines if something should happen to a packet due to a given probability
 bool ConnectionController::packetBadLuck(float prob) {
     return (rand() % 100) < ((int) (prob * 100));
+}
+
+void ConnectionController::printWindow(Connection &connection) {
+    printf("Current window = [");
+    for (int i = 0; i < connection.pktBuffer.size(); i++) {
+        if (i < connection.pktBuffer.size() - 1) {
+            printf("%u, ", connection.pktBuffer[i].pkt->header.sqn);
+        } else {
+            printf("%u", connection.pktBuffer[i].pkt->header.sqn);
+        }
+    }
+
+    printf("]\n");
 }
 
 //void ConnectionController::setupWorkers(int numWorkers) {

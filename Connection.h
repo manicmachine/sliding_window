@@ -25,21 +25,22 @@ struct Connection {
     unsigned int sqnBits;
     unsigned short wSize; // (R|S)WS
     unsigned int pktSizeBytes;
-    unsigned int minPktsNeeded;
     unsigned int pktsSent = 0;
+    unsigned int resentPkts = 0;
+    unsigned int minPktsNeeded = 1;
     chrono::microseconds timeoutInterval;
     chrono::time_point<chrono::system_clock> timeConnectionStarted;
     string filename;
     FILE *file; // the file being read or written
-//    size_t bytesRead;
+    size_t bytesRead = 0;
 
     union lastRec {
-        unsigned int lastAckRec; // LAR
+        unsigned int lastAckRec = 0; // LAR
         unsigned int lastFrameRec; // LFR
     } lastRec;
 
     union lastFrame {
-        unsigned int largestAcceptableFrame; // LAF
+        unsigned int largestAcceptableFrame = 0; // LAF
         unsigned int lastFrameSent; // LFS
     } lastFrame;
 

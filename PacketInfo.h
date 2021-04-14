@@ -10,6 +10,7 @@ struct PacketInfo {
     struct Packet *pkt;
     chrono::time_point<chrono::system_clock> timeout{};
     unsigned char count = 0; // tracks the number of times this packet was sent/acked
+    bool acked = false;
 };
 
 
