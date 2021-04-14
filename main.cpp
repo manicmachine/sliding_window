@@ -44,7 +44,7 @@ int main(int argc, char *argv[]) {
         }
 
         printf("Packet size (KB): %i\n", appState.connectionSettings.pktSize);
-        printf("Timeout interval (ms): %lu\n", (appState.connectionSettings.timeoutInterval.tv_usec / 1000));
+        printf("Timeout interval (ms): %lu\n", (chrono::duration_cast<chrono::milliseconds>(appState.connectionSettings.timeoutInterval)).count());
         printf("Window size: %i\n", appState.connectionSettings.wSize);
         printf("Sequence range: %i\n", appState.connectionSettings.sqnRange);
         printf("Damage probability: %g\n", appState.connectionSettings.damageProb);
@@ -58,7 +58,7 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        if (!appState.connectionSettings.lostAcks.empty()) {
+        if (!appState.connectionSettings.lostPackets.empty()) {
             printf("Lost packets:\n");
 
             for (int damagedPacket : appState.connectionSettings.damagedPackets) {

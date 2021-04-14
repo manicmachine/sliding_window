@@ -9,7 +9,7 @@
 #include <array>
 #include <cstdint>
 #include <numeric>
-
+#include <string.h>
 #include <netdb.h>
 
 #include "Packet.h"
@@ -18,19 +18,22 @@
 using namespace std;
 
 class PacketBuilder {
-    unsigned int sqn;
-    struct sockaddr_in srcAddr;
-    struct sockaddr_in destAddr;
-    unsigned short wSize;
-    bool brokenChksum = false;
+    unsigned int sqn = 0;
+    struct sockaddr_in srcAddr {0,0,0,0};
+    struct sockaddr_in destAddr {0,0,0,0};
+    unsigned short wSize = 0;
+    unsigned char sqnbits= 0;
+    int pktSize = 0;
     bool ack = false;
     bool syn = false;
     bool fin = false;
-    int pktSize;
-    char *payload;
+    bool ping = false;
+    char *payload = NULL;
+
+    void initPayload();
 
 public:
-    static int generateChksum(Packet pkt, bool broken = false);
+    static int generateChksum(Packet pkt);
 
     void setPktSize(unsigned int pktSize);
 
@@ -42,9 +45,9 @@ public:
 
     void setWSize(unsigned short wSize);
 
-    void setPayload(string buffer);
+    void setSqnBits(unsigned char bits);
 
-    void enableBrokenChksum();
+    void setPayload(string buffer);
 
     void enableAckBit();
 
@@ -52,7 +55,10 @@ public:
 
     void enableFinBit();
 
+    void enablePingBit();
+
     struct Packet buildPacket();
+
 };
 
 #endif //SLIDING_WINDOW_PACKETBUILDER_H

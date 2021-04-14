@@ -6,6 +6,7 @@
 #define SLIDING_WINDOW_CONNECTIONSETTINGS_H
 
 #include <sys/time.h>
+#include <chrono>
 #include <vector>
 
 using namespace std;
@@ -20,14 +21,15 @@ struct ConnectionSettings {
     unsigned char maxConnections = 1;
     unsigned int pktSize = 0;
     unsigned int port = 0;
-    timeval timeoutInterval{0}; // Used to calculate TTL for server
+    chrono::microseconds timeoutInterval = chrono::microseconds (0); // Used to calculate TTL for server
     const float timeoutScale = 0.9;
     unsigned short wSize = 0;
     unsigned int sqnRange = 0;
+    unsigned char sqnBits = 0;
     float damageProb = -1; // Negative value signals user hasn't confirmed value yet
     float lostProb = -1;
     vector<int> damagedPackets;
-    vector<int> lostAcks;
+    vector<int> lostPackets;
 };
 
 

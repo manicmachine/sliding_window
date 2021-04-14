@@ -14,6 +14,7 @@
 #include "ConnectionSettings.h"
 
 #define KB 1024
+#define RETRY 3
 
 using namespace std;
 
@@ -27,7 +28,10 @@ class ConnectionController {
     void addToPktBuffer(Connection &connection, Packet pkt);
     void sendPacket(Connection &connection, PacketInfo &pktInfo);
     Packet recPacket(Connection &connection, bool &timeout, bool &badPkt);
-    timeval calculateTimeout(Connection &connection);
+    Packet sendAndRec(Connection &connection, PacketInfo &pktInfo, bool &timeout, bool &badPkt);
+    Packet recAndAck(Connection &connection, bool &timeout, bool &badPkt);
+    timeval toTimeval(chrono::microseconds value);
+    bool packetBadLuck(float prob);
     string getLocalAddress();
 
 public:
@@ -39,11 +43,11 @@ public:
     void initializeConnections(const string& ipAddress = "");
 
     // Client - opens connection with server and begins communication
-    void handleConnection(Connection &connection);
+    void handleConnection(Connection &connection, bool isPing = false);
     void handshake(Connection &connection, bool isPing = false);
     void transferFile(Connection &connection);
 
-    timeval generatePingBasedTimeout();
+    chrono::microseconds generatePingBasedTimeout();
     /* Start listening for incoming connections, creating Connection objects as they arrive, and
      * process them
      */

@@ -5,6 +5,7 @@
 #ifndef SLIDING_WINDOW_CONNECTION_H
 #define SLIDING_WINDOW_CONNECTION_H
 
+#include <chrono>
 #include <sys/time.h>
 #include <vector>
 #include <queue>
@@ -21,12 +22,14 @@ struct Connection {
     struct sockaddr_in destAddr = {0, 0, 0, 0};
     int sockfd;
     unsigned int sqn;
+    unsigned int sqnBits;
     unsigned short wSize; // (R|S)WS
     unsigned int pktSizeBytes;
     unsigned int minPktsNeeded;
     unsigned int pktsSent = 0;
-    timeval timeoutInterval{0};
-    timeval timeConnectionStarted;
+    chrono::microseconds timeoutInterval;
+    chrono::time_point<chrono::system_clock> timeConnectionStarted;
+    string filename;
     FILE *file; // the file being read or written
 //    size_t bytesRead;
 
@@ -39,7 +42,6 @@ struct Connection {
         unsigned int largestAcceptableFrame; // LAF
         unsigned int lastFrameSent; // LFS
     } lastFrame;
-
 
     // packet buffer
     // Packets inserted at the index (sqn % wSize) with the next in-order packet being (sqn % wSize) + 1

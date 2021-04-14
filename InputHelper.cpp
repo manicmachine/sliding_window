@@ -49,7 +49,7 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
             }
 
             // Set file to be sent (client) or path which to save files to (server)
-            if (strcmp(argv[i], "--fp") == 0 || strcmp(argv[i], "fp") == 0) {
+            if (strcmp(argv[i], "--fp") == 0 || strcmp(argv[i], "fp") == 0 || strcmp(argv[i], "--file") == 0 || strcmp(argv[i], "file") == 0) {
                 appState->filePath = argv[i + 1];
 
                 if (stat(appState->filePath.c_str(), &appState->fileStats) != 0) {
@@ -57,8 +57,7 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
                     exit(-1);
                 } else {
                     if (appState->role == CLIENT) {
-                        // FIXME
-//                        appState->filePath = filesystem::path(appState->filePath).filename();
+                        appState->filePath = getFileName(&appState->filePath);
                     }
                 }
             }
@@ -106,7 +105,7 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
                     tmp = stoi(argv[i + 1]);
 
                     if (tmp > 0) {
-                        appState->connectionSettings.timeoutInterval.tv_usec = tmp * 1000;
+                        appState->connectionSettings.timeoutInterval = chrono::milliseconds(tmp);
                     } else {
                         fprintf(stderr, "Invalid timeout interval provided: Value must be positive.\n");
                         exit(-1);
@@ -211,7 +210,7 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
             // Situational errors - Lost ACKs
             if (strcmp(argv[i], "--ls") == 0 || strcmp(argv[i], "ls") == 0) {
                 string seq = argv[i + 1];
-                if (parseDamagedPacketSeq(&seq, &appState->connectionSettings.lostAcks) < 0) {
+                if (parseDamagedPacketSeq(&seq, &appState->connectionSettings.lostPackets) < 0) {
                     fprintf(stderr, "Invalid packet sequence provided: Error parsing values.\n");
                     exit(-1);
                 }
@@ -410,7 +409,7 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
     }
 
     input.clear();
-    if (appState->connectionSettings.timeoutInterval.tv_usec == 0) {
+    if (appState->connectionSettings.timeoutInterval.count() == 0) {
         if (appState->role == CLIENT) {
             bool pingTimeout = false;
             printf("Select timeout interval calculation: \n");
@@ -418,7 +417,7 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
             printf("\t2 - User specified\n");
             printf(">> ");
 
-            while (appState->connectionSettings.timeoutInterval.tv_usec == 0 && !pingTimeout) {
+            while (appState->connectionSettings.timeoutInterval.count() == 0 && !pingTimeout) {
                 getline(cin, input);
 
                 if (input.empty()) {
@@ -434,11 +433,11 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
                     } else if (tmp == 2) {
                         printf("Enter timeout interval (ms) (Default: 1000): ");
 
-                        while (appState->connectionSettings.timeoutInterval.tv_usec == 0) {
+                        while (appState->connectionSettings.timeoutInterval.count() == 0) {
                             getline(cin, input);
 
                             if (input.empty()) {
-                                appState->connectionSettings.timeoutInterval.tv_sec = 1000 * 1000;
+                                appState->connectionSettings.timeoutInterval = chrono::milliseconds(1000);
                                 break;
                             }
 
@@ -446,7 +445,7 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
                                 tmp = stoi(input);
 
                                 if (tmp > 0) {
-                                    appState->connectionSettings.timeoutInterval.tv_usec = tmp * 1000;
+                                    appState->connectionSettings.timeoutInterval = chrono::milliseconds(tmp);
                                 } else {
                                     printf("Invalid value entered. Enter a positive integer\n");
                                 }
@@ -466,23 +465,23 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
                 ConnectionController connectionController(*appState);
                 printf("Performing ping test. Please wait...\n");
                 appState->connectionSettings.timeoutInterval = connectionController.generatePingBasedTimeout();
-                printf("Ping-based timeout (ms): %li", (appState->connectionSettings.timeoutInterval.tv_usec / 1000));
+                printf("Ping-based timeout (ms): %li\n", (appState->connectionSettings.timeoutInterval.count()));
             }
         } else {
             printf("Enter connection TTL (ms) (Default: 5000): ");
 
-            while (appState->connectionSettings.timeoutInterval.tv_usec == 0) {
+            while (appState->connectionSettings.timeoutInterval.count() == 0) {
                 try {
                     getline(cin, input);
                     if (input.empty()) {
-                        appState->connectionSettings.timeoutInterval.tv_usec = 5000 * 1000;
+                        appState->connectionSettings.timeoutInterval = chrono::seconds(5);
                         break;
                     }
 
                     tmp = stoi(input);
 
                     if (tmp > 0) {
-                        appState->connectionSettings.timeoutInterval.tv_usec = tmp * 1000;
+                        appState->connectionSettings.timeoutInterval = chrono::milliseconds(tmp);
                     } else {
                         printf("Invalid value entered. Enter a positive integer\n");
                     }
@@ -530,6 +529,7 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
             getline(cin, input);
 
             if (input.empty()) {
+                appState->connectionSettings.sqnBits = 8;
                 appState->connectionSettings.sqnRange = (1 << 8) - 1;
                 break;
             }
@@ -544,6 +544,8 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
                     } else {
                         appState->connectionSettings.sqnRange = (1 << tmp) - 1;
                     }
+
+                    appState->connectionSettings.sqnBits = tmp;
                 } else {
                     printf("Invalid value entered. Enter a value between 0 and 33\n");
                 }
@@ -630,13 +632,13 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
 
         input.clear();
         printf("Enter a comma-separated sequence of lost ACKs (Default: None): ");
-        while (appState->connectionSettings.lostAcks.empty()) {
+        while (appState->connectionSettings.lostPackets.empty()) {
             getline(cin, input);
 
             if (input.empty()) {
                 break;
             } else {
-                if (parseDamagedPacketSeq(&input, &appState->connectionSettings.lostAcks) < 0) {
+                if (parseDamagedPacketSeq(&input, &appState->connectionSettings.lostPackets) < 0) {
                     printf("Invalid values entered. Enter a comma-separated sequence of integers representing sequence numbers\n");
                 }
             }
@@ -708,4 +710,8 @@ int InputHelper::parseIPAddresses(string *seq, vector<string> *ipAddresses) {
     }
 
     return 0;
+}
+
+string InputHelper::getFileName(string *filepath) {
+    return filepath->substr(filepath->find_last_of('/') + 1, filepath->length());
 }

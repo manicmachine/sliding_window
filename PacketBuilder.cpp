@@ -5,59 +5,67 @@
 
 #include "PacketBuilder.h"
 
+void PacketBuilder::initPayload() {
+    this->payload = (char *) calloc(1, this->pktSize);
+}
+
+
 void PacketBuilder::setSqn(unsigned int sqn) {
-   sqn = sqn;
+   this->sqn = sqn;
 }
 
 void PacketBuilder::setSrcAddr(struct sockaddr_in srcAddr) {
-    srcAddr = srcAddr;
+    this->srcAddr = srcAddr;
 }
 
 void PacketBuilder::setDestAddr(struct sockaddr_in destAddr) {
-    destAddr = destAddr;
+    this->destAddr = destAddr;
 }
 
 void PacketBuilder::setWSize(unsigned short wSize) {
-    wSize = wSize;
+    this->wSize = wSize;
 }
 
-void PacketBuilder::enableBrokenChksum() {
-    brokenChksum = true;
+void PacketBuilder::setSqnBits(unsigned char bits) {
+    this->sqnbits = bits;
 }
 
 void PacketBuilder::enableAckBit() {
-    ack = true;
+    this->ack = true;
 }
 
 void PacketBuilder::enableSynBit() {
-    syn = true;
+    this->syn = true;
 }
 
 void PacketBuilder::enableFinBit() {
-    fin = true;
+    this->fin = true;
+}
+
+void PacketBuilder::enablePingBit() {
+    this->ping = true;
 }
 
 void PacketBuilder::setPktSize(unsigned int pktSize) {
-    pktSize = pktSize;
+    this->pktSize = pktSize;
 }
 
 void PacketBuilder::setPayload(string buffer) {
-    vector<char> convBuffer(buffer.begin(), buffer.end());
-    convBuffer.push_back('\0');
-    convBuffer.resize(pktSize, 0);
+    if (this->payload == NULL) {
+        initPayload();
+    }
 
-    payload = &convBuffer[0];
+    vector<char> convBuffer(buffer.begin(), buffer.end());
+    convBuffer.resize(this->pktSize, 0);
+
+    memcpy(this->payload, &convBuffer[0], this->pktSize);
 }
 
-int PacketBuilder::generateChksum(Packet pkt, bool broken) {
+int PacketBuilder::generateChksum(Packet pkt) {
     boost::crc_32_type chksum;
 
-    if (broken) {
-        // Generate a broken checksum by shifting the byte boundaries used by the checksum generator
-        chksum.process_bytes(&pkt + 4, sizeof(pkt) - 4);
-    } else {
-        chksum.process_bytes(&pkt, sizeof(pkt));
-    }
+    chksum.process_bytes(&pkt.header, sizeof(Packet::Header));
+    chksum.process_bytes(pkt.payload, pkt.header.pktSize);
 
     return chksum.checksum();
 }
@@ -72,11 +80,15 @@ struct Packet PacketBuilder::buildPacket() {
     pkt.header.pktSize = pktSize;
     pkt.header.chksum = 0;
 
-    pkt.header.flags.ack = (ack ? '1' : '0');
-    pkt.header.flags.syn = (syn ? '1' : '0');
-    pkt.header.flags.fin = (fin ? '1' : '0');
+    pkt.header.flags.ack = (ack ? 1 : 0);
+    pkt.header.flags.syn = (syn ? 1 : 0);
+    pkt.header.flags.fin = (fin ? 1 : 0);
+    pkt.header.flags.ping = (ping ? 1 : 0);
 
+    if (this->payload == NULL) initPayload();
+    pkt.payload = this->payload;
     pkt.header.chksum = generateChksum(pkt);
 
     return pkt;
 }
+
