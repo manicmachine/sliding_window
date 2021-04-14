@@ -57,7 +57,7 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
                     exit(-1);
                 } else {
                     if (appState->role == CLIENT) {
-                        appState->filePath = getFileName(&appState->filePath);
+                        appState->fileName = getFileName(&appState->filePath);
                     }
                 }
             }
@@ -326,7 +326,7 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
             getline(cin, input);
 
             if (appState->role == SERVER && input.empty()) {
-                input = ".";
+                input = "./";
             }
 
             // Check to see if the filePath can be accessed
@@ -343,9 +343,10 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
                         remove((input + "/.sliding_window_test.txt").c_str());
                     }
                 }
-
-                appState->filePath = input;
             }
+
+            appState->filePath = input;
+            appState->fileName = getFileName(&appState->filePath);
         }
     }
 

@@ -27,6 +27,7 @@ struct ApplicationState {
     vector<string> ipAddresses;
 
     string filePath;
+    string fileName;
     struct stat fileStats{};
 };
 
