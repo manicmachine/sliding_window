@@ -77,28 +77,3 @@ int main(int argc, char *argv[]) {
         }
     }
 }
-
-// Invoke local md5sum to get digital signature of provided filePath
-string md5(string data) {
-    string command = "/usr/bin/md5sum " + data;
-    FILE *pipe = popen(command.c_str(), "r");
-
-    if (pipe == NULL) {
-        fprintf(stderr, "Error opening pipe\nError #: %d\n", errno);
-        exit(1);
-    }
-
-    char buffer[64];
-    string md5;
-
-    while (!feof(pipe)) {
-        if (fgets(buffer, 64, pipe) != NULL) {
-            md5 += buffer;
-        }
-    }
-
-    md5 = md5.substr(0, 33);
-    pclose(pipe);
-
-    return md5;
-}

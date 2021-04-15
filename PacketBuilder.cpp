@@ -65,7 +65,10 @@ int PacketBuilder::generateChksum(Packet pkt) {
     boost::crc_32_type chksum;
 
     chksum.process_bytes(&pkt.header, sizeof(Packet::Header));
-    chksum.process_bytes(pkt.payload, pkt.header.pktSize);
+
+    if (pkt.header.pktSize != 0 && pkt.header.flags.ping != 1 && (pkt.header.flags.syn != 1 && pkt.header.flags.ack !=1)) {
+        chksum.process_bytes(pkt.payload, pkt.header.pktSize);
+    }
 
     return chksum.checksum();
 }

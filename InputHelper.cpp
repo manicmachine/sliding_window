@@ -238,6 +238,7 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
 
 void InputHelper::promptForParameters(ApplicationState *appState) {
     bool enableDamage = false;
+    bool pingTimeout = false;
     string input;
     unsigned int tmp = 0;
 
@@ -412,7 +413,6 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
     input.clear();
     if (appState->connectionSettings.timeoutInterval.count() == 0) {
         if (appState->role == CLIENT) {
-            bool pingTimeout = false;
             printf("Select timeout interval calculation: \n");
             printf("\t1 - Ping calculated (Default)\n");
             printf("\t2 - User specified\n");
@@ -460,13 +460,6 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
                 } catch (invalid_argument &e) {
                     printf("Invalid value entered. Select either ping calculated (1) or user specified (2)\n");
                 }
-            }
-
-            if (pingTimeout) {
-                ConnectionController connectionController(*appState);
-                printf("Performing ping test. Please wait...\n");
-                appState->connectionSettings.timeoutInterval = connectionController.generatePingBasedTimeout();
-                printf("Ping-based timeout (ms): %li\n", (appState->connectionSettings.timeoutInterval.count()));
             }
         } else {
             printf("Enter connection TTL (ms) (Default: 5000): ");
@@ -647,6 +640,13 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
     } else {
       appState->connectionSettings.damageProb = 0;
       appState->connectionSettings.lostProb = 0;
+    }
+
+    if (pingTimeout) {
+        ConnectionController connectionController(*appState);
+        printf("Performing ping test. Please wait...\n");
+        appState->connectionSettings.timeoutInterval = connectionController.generatePingBasedTimeout();
+        printf("Ping-based timeout (ms): %li\n", (appState->connectionSettings.timeoutInterval.count()));
     }
 }
 

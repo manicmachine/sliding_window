@@ -28,8 +28,8 @@ struct ConnectionSettings {
     unsigned char sqnBits = 0;
     float damageProb = -1; // Negative value signals user hasn't confirmed value yet
     float lostProb = -1;
-    vector<int> damagedPackets;
-    vector<int> lostPackets;
+    vector<int> damagedPackets{};
+    vector<int> lostPackets{};
 };
 
 

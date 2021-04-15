@@ -57,6 +57,7 @@ public:
     void processConnections();
 
     void printWindow(Connection &connection);
+    string md5(const string& data);
 
 };
 #endif //SLIDING_WINDOW_CONNECTIONCONTROLLER_H

@@ -14,7 +14,7 @@
 #include "Packet.h"
 #include "PacketInfo.h"
 
-enum Status {PENDING, OPEN, CLOSED, ERROR};
+enum Status {PENDING, OPEN, CLOSED, ERROR, COMPLETE};
 
 struct Connection {
     Status status = PENDING;
