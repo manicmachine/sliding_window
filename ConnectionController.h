@@ -57,6 +57,7 @@ public:
     void processConnections();
 
     void printWindow(Connection &connection);
+    void printPacket(Packet &pkt);
     string md5(const string& data);
 
 };

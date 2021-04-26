@@ -46,6 +46,13 @@ void PacketBuilder::enablePingBit() {
     this->ping = true;
 }
 
+void PacketBuilder::resetFlags() {
+    this->ack = false;
+    this->syn = false;
+    this->fin = false;
+    this->ping = false;
+}
+
 void PacketBuilder::setPktSize(unsigned int pktSize) {
     this->pktSize = pktSize;
 }
@@ -79,6 +86,7 @@ struct Packet PacketBuilder::buildPacket() {
     pkt.header.srcAddr = srcAddr;
     pkt.header.destAddr = destAddr;
     pkt.header.sqn = sqn;
+    pkt.header.sqnBits = sqnbits;
     pkt.header.wSize = wSize;
     pkt.header.pktSize = pktSize;
     pkt.header.chksum = 0;
@@ -88,8 +96,9 @@ struct Packet PacketBuilder::buildPacket() {
     pkt.header.flags.fin = (fin ? 1 : 0);
     pkt.header.flags.ping = (ping ? 1 : 0);
 
-    if (this->payload == NULL) initPayload();
-    pkt.payload = this->payload;
+    if (this->payload == NULL) initPayload(); // Initialize the builders payload
+    pkt.initPayload(); // Initialize the packets payload
+    memcpy(pkt.payload, this->payload, this->pktSize);
     pkt.header.chksum = generateChksum(pkt);
 
     return pkt;

@@ -22,12 +22,13 @@ struct ConnectionSettings {
     unsigned int pktSize = 0;
     unsigned int port = 0;
     chrono::microseconds timeoutInterval = chrono::microseconds (0); // Used to calculate TTL for server
-    const float timeoutScale = 0.9;
+    const float timeoutScale = 2;
     unsigned short wSize = 0;
     unsigned int sqnRange = 0;
     unsigned char sqnBits = 0;
     float damageProb = -1; // Negative value signals user hasn't confirmed value yet
     float lostProb = -1;
+    bool pingCalculatedTimeout = false;
     vector<int> damagedPackets{};
     vector<int> lostPackets{};
 };

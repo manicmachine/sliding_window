@@ -118,8 +118,7 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
 
             // Set timeout interval (ping calculated)
             if (strcmp(argv[i], "--tip") == 0 || strcmp(argv[i], "tip") == 0) {
-                ConnectionController connectionController(*appState);
-                appState->connectionSettings.timeoutInterval = connectionController.generatePingBasedTimeout();
+                appState->connectionSettings.pingCalculatedTimeout = true;
             }
 
             // Set sliding window size
@@ -167,10 +166,10 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
                 try {
                     tmp_f = stof(argv[i + 1]);
 
-                    if (tmp_f >= 0 && tmp_f <= 100) {
+                    if (tmp_f >= 0 && tmp_f <= 1) {
                         appState->connectionSettings.damageProb = tmp_f;
                     } else {
-                        fprintf(stderr, "Invalid damage probability provided: Value must be from 0 to 100.\n");
+                        fprintf(stderr, "Invalid damage probability provided: Value must be from 0 to 1.\n");
                         exit(-1);
                     }
                 } catch (invalid_argument &e) {
@@ -195,10 +194,10 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
                 try {
                     tmp_f = stof(argv[i + 1]);
 
-                    if (tmp_f >= 0 && tmp_f <= 100) {
+                    if (tmp_f >= 0 && tmp_f <= 1) {
                         appState->connectionSettings.lostProb = tmp_f;
                     } else {
-                        fprintf(stderr, "Invalid lost probability provided: Value must be from 0 to 100.\n");
+                        fprintf(stderr, "Invalid lost probability provided: Value must be from 0 to 1.\n");
                         exit(-1);
                     }
                 } catch (invalid_argument &e) {
@@ -238,7 +237,6 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
 
 void InputHelper::promptForParameters(ApplicationState *appState) {
     bool enableDamage = false;
-    bool pingTimeout = false;
     string input;
     unsigned int tmp = 0;
 
@@ -333,6 +331,7 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
             // Check to see if the filePath can be accessed
             if (stat(input.c_str(), &appState->fileStats) != 0) {
                 printf("Unable to access file path specified\n");
+                input.clear();
             } else {
                 if (appState->role == SERVER) {
                     // Check server can actually write to directory
@@ -418,11 +417,11 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
             printf("\t2 - User specified\n");
             printf(">> ");
 
-            while (appState->connectionSettings.timeoutInterval.count() == 0 && !pingTimeout) {
+            while (appState->connectionSettings.timeoutInterval.count() == 0 && !appState->connectionSettings.pingCalculatedTimeout) {
                 getline(cin, input);
 
                 if (input.empty()) {
-                    pingTimeout = true;
+                    appState->connectionSettings.pingCalculatedTimeout = true;
                     break;
                 }
 
@@ -430,7 +429,7 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
                     tmp = stoi(input);
 
                     if (tmp == 1) {
-                        pingTimeout = true;
+                        appState->connectionSettings.pingCalculatedTimeout = true;
                     } else if (tmp == 2) {
                         printf("Enter timeout interval (ms) (Default: 1000): ");
 
@@ -567,7 +566,7 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
 
     if (enableDamage) {
         input.clear();
-        printf("Enter packet damage probability (Default: 0, MAX: 100): ");
+        printf("Enter packet damage probability (Default: 0, MAX: 1): ");
         while (appState->connectionSettings.damageProb == -1) {
             getline(cin, input);
 
@@ -579,17 +578,17 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
             try {
                 // Store directly into appState->damageProb since tmp would be a narrowing conversion
                 appState->connectionSettings.damageProb = stof(input);
-                if (appState->connectionSettings.damageProb < 0 || appState->connectionSettings.damageProb > 100) {
+                if (appState->connectionSettings.damageProb < 0 || appState->connectionSettings.damageProb > 1) {
                     appState->connectionSettings.damageProb = -1;
-                    printf("Invalid value entered. Enter a percentage value from 0 to 100\n");
+                    printf("Invalid value entered. Enter a probability value from 0 to 1\n");
                 }
             } catch (invalid_argument &e) {
-                printf("Invalid value entered. Enter a percentage value from 0 to 100\n");
+                printf("Invalid value entered. Enter a probability value from 0 to 1\n");
             }
         }
 
         input.clear();
-        printf("Enter lost ACK probability (Default: 0, MAX: 100): ");
+        printf("Enter lost package probability (Default: 0, MAX: 1): ");
         while (appState->connectionSettings.lostProb == -1) {
             getline(cin, input);
 
@@ -601,12 +600,12 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
             try {
                 // Store directly into appState->damageProb since tmp would be a narrowing conversion
                 appState->connectionSettings.lostProb = stof(input);
-                if (appState->connectionSettings.lostProb < 0 || appState->connectionSettings.lostProb > 100) {
+                if (appState->connectionSettings.lostProb < 0 || appState->connectionSettings.lostProb > 1) {
                     appState->connectionSettings.lostProb = -1;
-                    printf("Invalid value entered. Enter a percentage value from 0 to 100\n");
+                    printf("Invalid value entered. Enter a probability value from 0 to 1\n");
                 }
             } catch (invalid_argument &e) {
-                printf("Invalid value entered. Enter a percentage value from 0 to 100\n");
+                printf("Invalid value entered. Enter a probability value from 0 to 1\n");
             }
         }
 
@@ -625,7 +624,7 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
         }
 
         input.clear();
-        printf("Enter a comma-separated sequence of lost ACKs (Default: None): ");
+        printf("Enter a comma-separated sequence of lost packages (Default: None): ");
         while (appState->connectionSettings.lostPackets.empty()) {
             getline(cin, input);
 
@@ -642,11 +641,25 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
       appState->connectionSettings.lostProb = 0;
     }
 
-    if (pingTimeout) {
+    // TODO: Should be per-connection, not for all connections
+    if (appState->connectionSettings.pingCalculatedTimeout) {
+        chrono::microseconds timeout;
         ConnectionController connectionController(*appState);
         printf("Performing ping test. Please wait...\n");
-        appState->connectionSettings.timeoutInterval = connectionController.generatePingBasedTimeout();
-        printf("Ping-based timeout (ms): %li\n", (appState->connectionSettings.timeoutInterval.count()));
+        timeout = connectionController.generatePingBasedTimeout();
+
+        if (timeout.count() > 0) {
+            appState->connectionSettings.timeoutInterval = timeout;
+            unsigned long timeout_ms = chrono::duration_cast<chrono::milliseconds>(appState->connectionSettings.timeoutInterval).count();
+            if (timeout_ms == 0) {
+                printf("Ping-based interval (ms): < 1\n");
+            } else {
+                printf("Ping-based interval (ms): %lu\n", timeout_ms);
+            }
+        } else {
+            // TODO: Again, should be on a per-connection basis but for now we'll just exit
+            exit(-1);
+        }
     }
 }
 

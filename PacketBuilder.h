@@ -57,6 +57,8 @@ public:
 
     void enablePingBit();
 
+    void resetFlags();
+
     struct Packet buildPacket();
 
 };

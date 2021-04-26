@@ -27,7 +27,7 @@ struct Packet {
         struct Flags {
             char ack = 0; // Indicates this is an ack packet
             char syn = 0; // Indicates to synchronize sequence numbers
-            char fin = 0; // Indicates this is the last packet from sender
+            char fin = 0; // Indicates this is the last packet of the transfer
             char ping = 0; // Indicates this packet is for establishing ping-based timeout and has no viable payload
         } flags;
     } header;

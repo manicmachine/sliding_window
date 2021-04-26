@@ -32,7 +32,7 @@ struct Connection {
     chrono::time_point<chrono::system_clock> timeConnectionStarted;
     string filename;
     FILE *file; // the file being read or written
-    size_t bytesRead = 0;
+    ssize_t bytesRead = 0;
 
     union lastRec {
         unsigned int lastAckRec = 0; // LAR
@@ -44,12 +44,12 @@ struct Connection {
         unsigned int lastFrameSent; // LFS
     } lastFrame;
 
+    // timeout queue
+    queue<PacketInfo*> timeoutQueue{};
+
     // packet buffer
     // Packets inserted at the index (sqn % wSize) with the next in-order packet being (sqn % wSize) + 1
-    vector<PacketInfo> pktBuffer;
-
-    // timeout queue
-    queue<PacketInfo*> timeoutQueue;
+    PacketInfo *pktBuffer;
 };
 
 
