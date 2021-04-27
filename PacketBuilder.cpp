@@ -57,15 +57,20 @@ void PacketBuilder::setPktSize(unsigned int pktSize) {
     this->pktSize = pktSize;
 }
 
-void PacketBuilder::setPayload(string buffer) {
+void PacketBuilder::setPayload(const char *buffer, int buffLen) {
     if (this->payload == NULL) {
         initPayload();
     }
 
-    vector<char> convBuffer(buffer.begin(), buffer.end());
-    convBuffer.resize(this->pktSize, 0);
+//    vector<char> convBuffer(buffer.begin(), buffer.end());
+//    convBuffer.resize(this->pktSize, 0);
 
-    memcpy(this->payload, &convBuffer[0], this->pktSize);
+    bzero(this->payload, this->pktSize);
+    if (buffLen > 0){
+        memcpy(this->payload, &buffer[0], buffLen);
+    } else {
+        memcpy(this->payload, &buffer[0], this->pktSize);
+    }
 }
 
 int PacketBuilder::generateChksum(Packet pkt) {
@@ -81,7 +86,7 @@ int PacketBuilder::generateChksum(Packet pkt) {
 }
 
 struct Packet PacketBuilder::buildPacket() {
-    Packet pkt{};
+    Packet pkt = new Packet{};
 
     pkt.header.srcAddr = srcAddr;
     pkt.header.destAddr = destAddr;

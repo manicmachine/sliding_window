@@ -25,7 +25,7 @@ class ConnectionController {
 
     Connection createConnection(const string& ipAddress, bool isPing = false);
     Connection createConnection(int sockfd, sockaddr_in clientAddr, sockaddr_in &serverAddr);
-    PacketInfo addToPktBuffer(Connection &connection, Packet pkt);
+    void addToPktBuffer(Connection &connection, Packet pkt);
     void sendPacket(Connection &connection, PacketInfo &pktInfo);
     Packet recPacket(Connection &connection, bool &timeout, bool &badPkt);
     Packet sendAndRec(Connection &connection, PacketInfo &pktInfo, bool &timeout, bool &badPkt);

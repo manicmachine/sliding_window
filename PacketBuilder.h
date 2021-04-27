@@ -47,7 +47,7 @@ public:
 
     void setSqnBits(unsigned char bits);
 
-    void setPayload(string buffer);
+    void setPayload(const char *buffer, int buffLen = 0);
 
     void enableAckBit();
 

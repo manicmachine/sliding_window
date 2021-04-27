@@ -107,14 +107,7 @@ Connection ConnectionController::createConnection(const string& ipAddress, bool 
     if (!isPing) {
         connection.pktBuffer = new PacketInfo[connection.wSize];
         connection.timeoutInterval = appState->connectionSettings.timeoutInterval;
-        // TODO: REMOVE ME!
-//        connection.timeoutInterval = chrono::seconds(30);
-        //
-        connection.file = std::fopen(appState->filePath.c_str(), "r");
-
-        // TODO: Needed? If so, should be moved to after pktsize has been negotiated
-        connection.minPktsNeeded = (appState->fileStats.st_size / connection.pktSizeBytes) +
-                                   ((appState->fileStats.st_size % connection.pktSizeBytes) >= 0 ? 1 : 0 );
+        connection.file = std::fopen(appState->filePath.c_str(), "rb");
     } else {
         connection.timeoutInterval = chrono::seconds(PING_TIMEOUT_SECONDS);
     }
@@ -245,7 +238,7 @@ void ConnectionController::sendPacket(Connection &connection, PacketInfo &pktInf
 
         if (pktInfo.pkt.header.pktSize != 0 && !(pktInfo.pkt.header.flags.syn == 1 && pktInfo.pkt.header.flags.ack == 1)) {
             // Send payload
-            if (write(connection.sockfd, (char *) pktInfo.pkt.payload, pktInfo.pkt.header.pktSize) < 0) {
+            if (write(connection.sockfd, (void *) pktInfo.pkt.payload, pktInfo.pkt.header.pktSize) < 0) {
                 fprintf(stderr, "Error writing payload to socket\nError #: %d\n", errno);
                 connection.status = ERROR;
 
@@ -308,7 +301,7 @@ Packet ConnectionController::recPacket(Connection &connection, bool &timeout, bo
             pkt.initPayload();
 
             // Read payload
-            if (read(connection.sockfd, (char *) pkt.payload, pkt.header.pktSize) < 0) {
+            if (read(connection.sockfd, (void *) pkt.payload, pkt.header.pktSize) < 0) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
                     // No packets received within timeout interval
                     timeout = true;
@@ -472,13 +465,10 @@ void ConnectionController::transferFile(Connection &connection) {
         do {
             // Fill the window/packet buffer
             if (!finished) {
-                // TODO: REMOVE ME!
-                printf("Starting Packet Creation, LastFrameSent: %u, LastAckRec: %u\n", connection.lastFrame.lastFrameSent, connection.lastRec.lastAckRec);
-                //
                 for (unsigned int i = (connection.lastFrame.lastFrameSent + 1); i <= (connection.wSize + connection.lastRec.lastAckRec); i++) {
                     // Create data packet
-                    Packet newPkt;
                     pktBuilder.setSqn(i);
+                    bzero(fileBuffer, connection.pktSizeBytes);
                     connection.bytesRead = fread(fileBuffer, sizeof(char), connection.pktSizeBytes, connection.file);
 
                     // If we read less than our packet payload size, then we're on our last packet
@@ -489,19 +479,13 @@ void ConnectionController::transferFile(Connection &connection) {
                     }
 
                     pktBuilder.setPayload(fileBuffer);
-                    newPkt = pktBuilder.buildPacket();
+                    Packet newPkt = pktBuilder.buildPacket();
                     addToPktBuffer(connection, newPkt);
 
-                    // TODO: REMOVE ME!
-                    printf("Packet %u created; Payload: %s\n", newPkt.header.sqn, newPkt.payload);
-                    //
                     if (finished) break;
                 }
             }
 
-            // TODO: REMOVE ME!
-            printf("Finished Packet Creation, LastFrameSent: %u, LastAckRec: %u\n", connection.lastFrame.lastFrameSent, connection.lastRec.lastAckRec);
-            //
             printWindow(connection);
 
             // Get next packet from buffer and send it
@@ -521,20 +505,9 @@ void ConnectionController::transferFile(Connection &connection) {
                     connection.status = CLOSED;
                     break;
                 }
-            } else {
-                // If no timeouts, send all available packets within window
-                // TODO: REMOVE ME!
-//                printf("No timeouts occurred; sending packets\n");
-//                //
-//                for (unsigned int i = connection.lastFrame.lastFrameSent + 1; i <= (connection.wSize + connection.lastRec.lastAckRec); i++) {
-//                    if (connection.pktBuffer[i % connection.wSize].pkt.header.sqn <= connection.lastFrame.lastFrameSent) break;
-//                    if (!connection.pktBuffer[i % connection.wSize].acked) sendPacket(connection, connection.pktBuffer[i % connection.wSize]);
-//                }
             }
 
-            // TODO: REMOVE ME!
-            printf("Sending packets within Window\n");
-            //
+            // Send packets in window
             for (unsigned int i = connection.lastFrame.lastFrameSent + 1; i <= (connection.wSize + connection.lastRec.lastAckRec); i++) {
                 if (connection.pktBuffer[i % connection.wSize].pkt.header.sqn <= connection.lastFrame.lastFrameSent) break;
                 if (!connection.pktBuffer[i % connection.wSize].acked) sendPacket(connection, connection.pktBuffer[i % connection.wSize]);
@@ -565,9 +538,6 @@ void ConnectionController::transferFile(Connection &connection) {
                     printf("Removing ACK'd packet from Timeout Queue: %u\n", connection.timeoutQueue.front()->pkt.header.sqn);
                     //
                     connection.timeoutQueue.pop();
-                    // TODO: REMOVE ME!
-                    printf("Next packet in Timeout Queue: %u; Acked: %i\n", connection.timeoutQueue.front()->pkt.header.sqn, connection.timeoutQueue.front()->acked);
-                    //
                 }
 
                 while (!connection.timeoutQueue.empty() && connection.timeoutQueue.front()->pkt.header.sqn == ackPkt.header.sqn) {
@@ -579,10 +549,10 @@ void ConnectionController::transferFile(Connection &connection) {
                 // Check if we now have a series of ack'd packets; if so, update lastackrec
                 bool sequence = false;
                 int sequenceNum = 0;
+                // TODO: REMOVE ME!
+                printf("Checking for sequences of ACKs; Current LastAckRec: %u\n", connection.lastRec.lastAckRec);
+                //
                 for (int i = 1; i < connection.wSize; i++) {
-                    // TODO: REMOVE ME!
-                    printf("Checking for sequences of ACKs; Current LastAckRec: %u\n", connection.lastRec.lastAckRec);
-                    //
                     if (connection.pktBuffer[(connection.lastRec.lastAckRec + i) % connection.wSize].acked &&
                             (connection.pktBuffer[(connection.lastRec.lastAckRec + i) % connection.wSize].pkt.header.sqn > connection.lastRec.lastAckRec)) {
 //                        connection.lastRec.lastAckRec++;
@@ -680,25 +650,29 @@ void ConnectionController::transferFile(Connection &connection) {
 
             // Write in-order packet payloads to file
             if (inOrder) {
-                // TODO: REMOVE ME!
-                printf("Writing Packet %u payload to disk\n", pkt.header.sqn);
-                printf("Payload: %s\n", pkt.payload);
-                //
-                fwrite(pkt.payload, sizeof(char), pkt.header.pktSize, connection.file);
+
+                if (pkt.header.pktSize > 0) {
+                    // TODO: REMOVE ME!
+                    printf("Writing Packet %u payload to disk\n", pkt.header.sqn);
+                    //
+                    fwrite(pkt.payload, sizeof(char), pkt.header.pktSize, connection.file);
+                }
             }
 
             // Check for if we now have a valid sequence buffered, and if so, write them all in series
             bool sequence = false;
             int sequenceNum = 0;
+            // TODO: REMOVE ME!
+            printf("Checking sequences of valid packets; Current LastFrameRec: %u\n", connection.lastRec.lastFrameRec);
+            //
             for (int i = 1; i < connection.wSize; i++) {
-                // TODO: REMOVE ME!
-                printf("Checking sequences of valid packets; Current LastFrameRec: %u\n", connection.lastRec.lastFrameRec);
-                //
                 if ((connection.pktBuffer[(connection.lastRec.lastFrameRec + i) % connection.wSize].acked) &&
                 (connection.pktBuffer[(connection.lastRec.lastFrameRec + i) % connection.wSize].pkt.header.sqn > connection.lastRec.lastFrameRec)) {
-                    printf("Writing Packet %u payload to disk\n", connection.pktBuffer[(connection.lastRec.lastFrameRec + i) % connection.wSize].pkt.header.sqn );
-                    fwrite(connection.pktBuffer[(connection.lastRec.lastFrameRec + i) % connection.wSize].pkt.payload, sizeof(char), pkt.header.pktSize, connection.file);
-//                    connection.lastRec.lastFrameRec++;
+                    if (pkt.header.pktSize > 0) {
+                        printf("Writing Packet %u payload to disk\n", connection.pktBuffer[(connection.lastRec.lastFrameRec + i) % connection.wSize].pkt.header.sqn );
+                        fwrite(connection.pktBuffer[(connection.lastRec.lastFrameRec + i) % connection.wSize].pkt.payload, sizeof(char), pkt.header.pktSize, connection.file);
+                    }
+
                     sequence = true;
                     sequenceNum++;
                     // TODO: REMOVE ME!
@@ -756,23 +730,23 @@ void ConnectionController::transferFile(Connection &connection) {
 }
 
 
-PacketInfo ConnectionController::addToPktBuffer(Connection &connection, Packet pkt) {
+void ConnectionController::addToPktBuffer(Connection &connection, Packet pkt) {
     PacketInfo pktInfo{};
     pktInfo.pkt = pkt;
 
-    //TODO: REMOVE ME!
-    printf("---\n");
-    printf("Inserting Packet SQN %u\n", pkt.header.sqn);
-    printf("Inserted into Pkt Buffer at %u\n", pkt.header.sqn % connection.wSize);
-    printf("PacketInfo size: %lu\n", sizeof(pktInfo));
-    printf("Packet size: %lu\n", sizeof(pkt));
-    printf("Packet Header Size: %lu\n", sizeof(Packet::Header));
-    printf("Packet Payload Size: %lu\n", sizeof(pkt.payload));
-    printf("---\n");
-    //
+//    //TODO: REMOVE ME!
+//    printf("---\n");
+//    printf("Inserting Packet SQN %u\n", pkt.header.sqn);
+//    printf("Inserted into Pkt Buffer at %u\n", pkt.header.sqn % connection.wSize);
+//    printf("PacketInfo size: %lu\n", sizeof(pktInfo));
+//    printf("Packet size: %lu\n", sizeof(pkt));
+//    printf("Packet Header Sizse: %lu\n", sizeof(Packet::Header));
+//    printf("Packet Payload Size: %lu\n", sizeof(pkt.payload));
+//    printf("---\n");
+//    //
 
     connection.pktBuffer[pkt.header.sqn % connection.wSize] = pktInfo;
-    return pktInfo;
+//    return pktInfo;
 }
 
 void ConnectionController::handshake(Connection &connection, bool isPing) {
@@ -795,7 +769,7 @@ void ConnectionController::handshake(Connection &connection, bool isPing) {
         } else {
             pktBuilder.enableSynBit();
             pktBuilder.setSqn(connection.lastFrame.lastFrameSent);
-            pktBuilder.setPayload(appState->fileName);
+            pktBuilder.setPayload(appState->fileName.c_str(), appState->fileName.length());
         }
 
         Packet pkt = pktBuilder.buildPacket(), ackPkt{};
@@ -858,10 +832,10 @@ void ConnectionController::handshake(Connection &connection, bool isPing) {
 
         connection.lastRec.lastFrameRec = pkt.header.sqn;
         connection.filename = appState->filePath + connection.filename;
-        connection.file = std::fopen(connection.filename.c_str(), "w+");
+        connection.file = std::fopen(connection.filename.c_str(), "wb+");
 
         // Create file with first data packet received before moving to transfer phase
-        fwrite(pkt.payload, sizeof(char), pkt.header.pktSize, connection.file);
+        if (pkt.header.pktSize > 0) fwrite(pkt.payload, sizeof(char), pkt.header.pktSize, connection.file);
     }
 
     // Both
@@ -870,6 +844,12 @@ void ConnectionController::handshake(Connection &connection, bool isPing) {
 }
 
 chrono::microseconds ConnectionController::generatePingBasedTimeout() {
+    // If we're generating a timeout for a localhost connection, just set to 1 second to avoid excessively small timeouts
+    if (appState->role == CLIENT && appState->ipAddresses[0].compare("127.0.0.1") ==0) {
+        if (appState->verbose) printf("Detected localhost ping-based timeout test; configuring to 1 second timeout\n");
+        return chrono::seconds(1);
+    }
+
     chrono::microseconds avgTimeout = chrono::microseconds (0); // ms
     int scalar = appState->connectionSettings.timeoutScale * 100; // Issues happen when multiplying chrono units with floats, so make int first then divide by 10
 
@@ -964,7 +944,7 @@ void ConnectionController::printPacket(Packet &pkt) {
     if (pkt.header.flags.fin == 1) printf("FIN ");
     if (pkt.header.flags.ping == 1) printf("PING ");
     printf("\n");
-    if (pkt.header.pktSize != 0 && !(pkt.header.flags.syn == 1 && pkt.header.flags.ack == 1) && pkt.header.flags.ping != 1) printf("DEBUG: Packet Payload: %s\n", pkt.payload);
+//    if (pkt.header.pktSize != 0 && !(pkt.header.flags.syn == 1 && pkt.header.flags.ack == 1) && pkt.header.flags.ping != 1) printf("DEBUG: Packet Payload: %s\n", pkt.payload);
     printf("-----\n");
 }
 
