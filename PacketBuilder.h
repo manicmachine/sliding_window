@@ -18,6 +18,7 @@
 using namespace std;
 
 class PacketBuilder {
+    Packet* pkt;
     unsigned int sqn = 0;
     struct sockaddr_in srcAddr {0,0,0,0};
     struct sockaddr_in destAddr {0,0,0,0};
@@ -33,7 +34,7 @@ class PacketBuilder {
     void initPayload();
 
 public:
-    static int generateChksum(Packet pkt);
+    static int generateChksum(Packet *pkt);
 
     void setPktSize(unsigned int pktSize);
 

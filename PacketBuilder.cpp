@@ -73,39 +73,39 @@ void PacketBuilder::setPayload(const char *buffer, int buffLen) {
     }
 }
 
-int PacketBuilder::generateChksum(Packet pkt) {
+int PacketBuilder::generateChksum(Packet *pkt) {
     boost::crc_32_type chksum;
 
-    chksum.process_bytes(&pkt.header, sizeof(Packet::Header));
+    chksum.process_bytes(&pkt->header, sizeof(Packet::Header));
 
-    if (pkt.header.pktSize != 0 && pkt.header.flags.ping != 1 && (pkt.header.flags.syn != 1 && pkt.header.flags.ack !=1)) {
-        chksum.process_bytes(pkt.payload, pkt.header.pktSize);
+    if (pkt->header.pktSize != 0 && pkt->header.flags.ping != 1 && (pkt->header.flags.syn != 1 && pkt->header.flags.ack !=1)) {
+        chksum.process_bytes(pkt->payload, pkt->header.pktSize);
     }
 
     return chksum.checksum();
 }
 
 struct Packet PacketBuilder::buildPacket() {
-    Packet pkt = new Packet{};
+    this->pkt = new Packet();
 
-    pkt.header.srcAddr = srcAddr;
-    pkt.header.destAddr = destAddr;
-    pkt.header.sqn = sqn;
-    pkt.header.sqnBits = sqnbits;
-    pkt.header.wSize = wSize;
-    pkt.header.pktSize = pktSize;
-    pkt.header.chksum = 0;
+    pkt->header.srcAddr = srcAddr;
+    pkt->header.destAddr = destAddr;
+    pkt->header.sqn = sqn;
+    pkt->header.sqnBits = sqnbits;
+    pkt->header.wSize = wSize;
+    pkt->header.pktSize = pktSize;
+    pkt->header.chksum = 0;
 
-    pkt.header.flags.ack = (ack ? 1 : 0);
-    pkt.header.flags.syn = (syn ? 1 : 0);
-    pkt.header.flags.fin = (fin ? 1 : 0);
-    pkt.header.flags.ping = (ping ? 1 : 0);
+    pkt->header.flags.ack = (ack ? 1 : 0);
+    pkt->header.flags.syn = (syn ? 1 : 0);
+    pkt->header.flags.fin = (fin ? 1 : 0);
+    pkt->header.flags.ping = (ping ? 1 : 0);
 
     if (this->payload == NULL) initPayload(); // Initialize the builders payload
-    pkt.initPayload(); // Initialize the packets payload
-    memcpy(pkt.payload, this->payload, this->pktSize);
-    pkt.header.chksum = generateChksum(pkt);
+    pkt->initPayload(); // Initialize the packets payload
+    memcpy(pkt->payload, this->payload, this->pktSize);
+    pkt->header.chksum = generateChksum(this->pkt);
 
-    return pkt;
+    return *pkt;
 }
 
