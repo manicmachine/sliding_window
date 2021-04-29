@@ -23,11 +23,12 @@ struct Connection {
     int sockfd;
     unsigned int sqn;
     unsigned int sqnBits;
+    unsigned int sqnRange;
     unsigned short wSize; // (R|S)WS
     unsigned int pktSizeBytes;
     unsigned int pktsSent = 0;
     unsigned int resentPkts = 0;
-    unsigned int minPktsNeeded = 1;
+    unsigned int finalSqn = 0;
     chrono::microseconds timeoutInterval;
     chrono::time_point<chrono::system_clock> timeConnectionStarted;
     string filename;

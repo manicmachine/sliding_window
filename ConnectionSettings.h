@@ -19,10 +19,11 @@ enum Protocol {
 struct ConnectionSettings {
     Protocol protocol = NO_PROTO;
     unsigned char maxConnections = 1;
+    unsigned char retrylimit = 3;
     unsigned int pktSize = 0;
     unsigned int port = 0;
     chrono::microseconds timeoutInterval = chrono::microseconds (0); // Used to calculate TTL for server
-    const float timeoutScale = 2.5;
+    const float timeoutScale = 5;
     unsigned short wSize = 0;
     unsigned int sqnRange = 0;
     unsigned char sqnBits = 0;

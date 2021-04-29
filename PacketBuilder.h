@@ -50,6 +50,8 @@ public:
 
     void setPayload(const char *buffer, int buffLen = 0);
 
+    void emptyPayload();
+
     void enableAckBit();
 
     void enableSynBit();

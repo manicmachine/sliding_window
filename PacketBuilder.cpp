@@ -57,6 +57,14 @@ void PacketBuilder::setPktSize(unsigned int pktSize) {
     this->pktSize = pktSize;
 }
 
+void PacketBuilder::emptyPayload() {
+    if (this->payload == NULL) {
+        initPayload();
+    }
+
+    bzero(this->payload, this->pktSize);
+}
+
 void PacketBuilder::setPayload(const char *buffer, int buffLen) {
     if (this->payload == NULL) {
         initPayload();

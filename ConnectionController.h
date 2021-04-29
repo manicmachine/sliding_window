@@ -14,7 +14,6 @@
 #include "ConnectionSettings.h"
 
 #define KB 1024
-#define RETRY 3
 
 using namespace std;
 
@@ -27,12 +26,12 @@ class ConnectionController {
     Connection createConnection(int sockfd, sockaddr_in clientAddr, sockaddr_in &serverAddr);
     void addToPktBuffer(Connection &connection, Packet pkt);
     void sendPacket(Connection &connection, PacketInfo &pktInfo);
+    void sendPacket(Connection &connection, Packet &pkt);
     Packet recPacket(Connection &connection, bool &timeout, bool &badPkt);
     Packet sendAndRec(Connection &connection, PacketInfo &pktInfo, bool &timeout, bool &badPkt);
     Packet recAndAck(Connection &connection, bool &timeout, bool &badPkt);
     timeval toTimeval(chrono::microseconds value);
     bool packetBadLuck(float prob);
-    string getLocalAddress();
 
 public:
     ConnectionController(ApplicationState &appState);
@@ -58,6 +57,7 @@ public:
 
     void printWindow(Connection &connection);
     void printPacket(Packet &pkt);
+    string getLocalAddress();
     string md5(const string& data);
 
 };

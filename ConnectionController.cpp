@@ -6,6 +6,7 @@
 #include <string.h>
 #include <cmath>
 #include <thread>
+#include <iostream>
 
 #include "ConnectionController.h"
 #include "PacketBuilder.h"
@@ -102,6 +103,7 @@ Connection ConnectionController::createConnection(const string& ipAddress, bool 
     connection.sqn = 0;
     connection.wSize = appState->connectionSettings.wSize;
     connection.sqnBits = appState->connectionSettings.sqnBits;
+    connection.sqnRange = appState->connectionSettings.sqnRange;
     connection.pktSizeBytes = KB * appState->connectionSettings.pktSize;
 
     if (!isPing) {
@@ -141,9 +143,10 @@ Connection ConnectionController::createConnection(int sockfd, sockaddr_in client
     connection.destAddr = clientAddr;
 
     connection.sqn = 0;
+    connection.sqnBits = appState->connectionSettings.sqnBits;
+    connection.sqnRange = appState->connectionSettings.sqnRange;
     connection.wSize = appState->connectionSettings.wSize;
     connection.pktSizeBytes = KB * appState->connectionSettings.pktSize;
-    connection.sqnBits = appState->connectionSettings.sqnBits;
     connection.timeoutInterval = appState->connectionSettings.timeoutInterval; // TTL
     connection.pktBuffer = new PacketInfo[connection.wSize];
 
@@ -206,19 +209,19 @@ void ConnectionController::sendPacket(Connection &connection, PacketInfo &pktInf
             pktInfo.pkt.header.chksum = ~pktInfo.pkt.header.chksum;
             appState->connectionSettings.damagedPackets.erase(appState->connectionSettings.damagedPackets.begin());
             damaged = true;
-        } else if (packetBadLuck(appState->connectionSettings.damageProb) && pktInfo.count < (RETRY - 1)) {
+        } else if (packetBadLuck(appState->connectionSettings.damageProb) && pktInfo.count < (appState->connectionSettings.retrylimit - 1)) {
             pktInfo.pkt.header.chksum = ~pktInfo.pkt.header.chksum;
             damaged = true;
         } else if (!appState->connectionSettings.lostPackets.empty() && appState->connectionSettings.lostPackets.front() == pktInfo.pkt.header.sqn) {
             lost = true;
             appState->connectionSettings.lostPackets.erase(appState->connectionSettings.lostPackets.begin());
-        } else if (packetBadLuck(appState->connectionSettings.lostProb) && pktInfo.count < (RETRY - 1)) {
+        } else if (packetBadLuck(appState->connectionSettings.lostProb) && pktInfo.count < (appState->connectionSettings.retrylimit - 1)) {
             lost = true;
         }
     }
 
     // Signal this is our last ping
-    if (pktInfo.count == RETRY && pktInfo.pkt.header.flags.ping == 1) {
+    if (pktInfo.count == appState->connectionSettings.retrylimit && pktInfo.pkt.header.flags.ping == 1) {
         pktInfo.pkt.header.flags.fin = 1;
         pktInfo.pkt.header.chksum = 0;
         pktInfo.pkt.header.chksum = PacketBuilder::generateChksum(&pktInfo.pkt);
@@ -249,13 +252,13 @@ void ConnectionController::sendPacket(Connection &connection, PacketInfo &pktInf
 
     if (appState->verbose) {
         if (pktInfo.pkt.header.flags.ack == 1) {
-            printf("Ack %u sent\n", pktInfo.pkt.header.sqn);
+            printf("Ack %u sent\n", pktInfo.pkt.header.sqn % connection.sqnRange);
         } else {
             if (pktInfo.count > 1) {
                 connection.resentPkts++;
-                printf("Packet %u re-transmitted\n", pktInfo.pkt.header.sqn);
+                printf("Packet %u re-transmitted\n", pktInfo.pkt.header.sqn % connection.sqnRange);
             } else {
-                printf("Packet %u sent\n", pktInfo.pkt.header.sqn);
+                printf("Packet %u sent\n", pktInfo.pkt.header.sqn % connection.sqnRange);
             }
         }
 
@@ -271,58 +274,99 @@ void ConnectionController::sendPacket(Connection &connection, PacketInfo &pktInf
     }
 }
 
+void ConnectionController::sendPacket(Connection &connection, Packet &pkt) {
+    // Send header
+    if (write(connection.sockfd, (Packet::Header *) &(pkt.header), sizeof(Packet::Header)) < 0) {
+        fprintf(stderr, "Error writing header to socket\nError #: %d\n", errno);
+        connection.status = ERROR;
+
+        return;
+    }
+
+    if (pkt.header.pktSize != 0 && !(pkt.header.flags.syn == 1 && pkt.header.flags.ack == 1)) {
+        // Send payload
+        if (write(connection.sockfd, (void *) pkt.payload, pkt.header.pktSize) < 0) {
+            fprintf(stderr, "Error writing payload to socket\nError #: %d\n", errno);
+            connection.status = ERROR;
+
+            return;
+        }
+    }
+
+    if (appState->verbose) {
+        if (pkt.header.flags.ack == 1) {
+            printf("Ack %u sent\n", pkt.header.sqn % connection.sqnRange);
+        } else {
+            printf("Packet %u sent\n", pkt.header.sqn % connection.sqnRange);
+        }
+    }
+}
+
 Packet ConnectionController::recPacket(Connection &connection, bool &timeout, bool &badPkt) {
     auto *pkt = new Packet();
+    char headerBuffer[sizeof(Packet::Header)];
+    bzero(headerBuffer, sizeof(Packet::Header));
     timeout = false;
     badPkt = false;
+    connection.bytesRead = 0; // Overall bytes read per loop
+    ssize_t bytesRead = 0; // bytes read per cycle per loop
 
     // Listen for response
     // Read header
-    connection.bytesRead = read(connection.sockfd, (Packet::Header *) &(pkt->header), sizeof(Packet::Header));
-    if (connection.bytesRead < 0) {
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            // No packets received within timeout interval
-            timeout = true;
-            printf("Timed out waiting for packet\n");
-        } else {
-            fprintf(stderr, "Error reading header from socket\nError #: %d\n", errno);
-            connection.status = ERROR;
-            return *pkt;
+    do {
+        bytesRead = read(connection.sockfd, (void *) (headerBuffer + connection.bytesRead), sizeof(Packet::Header) - connection.bytesRead);
+        if (bytesRead< 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                // No packets received within timeout interval
+                timeout = true;
+                printf("Timed out waiting for packet\n");
+            } else {
+                fprintf(stderr, "Error reading header from socket\nError #: %d\n", errno);
+                connection.status = ERROR;
+                return *pkt;
+            }
         }
-    } else if (connection.bytesRead == 0) {
-        // Nothing available in the socket so we created an empty packet
-        timeout = true;
-    } else {
-        // Don't initialize packet payload if pktsize == 0 (no payload) or it's a SYN/ACK packet (pktsize in negotiation)
-        if (pkt->header.pktSize != 0 && !(pkt->header.flags.syn == 1 && pkt->header.flags.ack == 1)) {
-            pkt->initPayload();
 
-            // Read payload
-            if (read(connection.sockfd, (void *) pkt->payload, pkt->header.pktSize) < 0) {
+        if (bytesRead > 0) connection.bytesRead += bytesRead;
+    } while (connection.bytesRead < sizeof(Packet::Header) && bytesRead >= 0 && !timeout);
+    memcpy(&pkt->header, headerBuffer, sizeof(Packet::Header));
+
+    if (!timeout && pkt->header.pktSize > 0 && !(pkt->header.flags.syn == 1 && pkt->header.flags.ack == 1)) {
+        pkt->initPayload();
+        connection.bytesRead = 0;
+        bytesRead = 0;
+
+        do {
+            bytesRead = read(connection.sockfd,  pkt->payload + connection.bytesRead, pkt->header.pktSize - connection.bytesRead);
+            if (bytesRead < 0) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
                     // No packets received within timeout interval
                     timeout = true;
-                    printf("Timed out waiting for payload\n");
+                    printf("Timed out waiting for packet\n");
                 } else {
-                    fprintf(stderr, "Error reading payload from socket\nError #: %d\n", errno);
+                    fprintf(stderr, "Error reading header from socket\nError #: %d\n", errno);
                     connection.status = ERROR;
+                    return *pkt;
                 }
             }
-        }
 
-        if (appState->verbose) {
-            if (appState->role == CLIENT && pkt->header.flags.ack == 1 && !timeout) {
-                printf("Ack %u received\n", pkt->header.sqn);
+            if (bytesRead > 0) connection.bytesRead += bytesRead;
+        } while (connection.bytesRead < pkt->header.pktSize && bytesRead >= 0 && !timeout);
+    }
+
+        if (appState->verbose && !timeout) {
+            if (pkt->header.flags.ack == 1) {
+                printf("Ack %u received\n", pkt->header.sqn % connection.sqnRange);
             } else {
-                printf("Packet %u received\n", pkt->header.sqn);
+                printf("Packet %u received\n", pkt->header.sqn % connection.sqnRange);
             }
         }
-    }
+//    }
 
     if (timeout) return *pkt;
 
     // Server tracks the total number of packets received
-    if (appState->role == SERVER && pkt->header.flags.ping != 1) connection.pktsSent++;
+    if (appState->role == SERVER && pkt->header.flags.ping != 1 && pkt->header.flags.ack != 1) connection.pktsSent++;
 
 
     // Check if damaged
@@ -334,11 +378,10 @@ Packet ConnectionController::recPacket(Connection &connection, bool &timeout, bo
         printf("Checksum FAILED!\n");
         // Assume this broken packet will be resent so increment counter
         if (appState->role == SERVER) connection.resentPkts++;
+    } else {
+        if (appState->role == SERVER) printf("Checksum OK\n");
     }
 
-    // TODO: REMOVE ME!
-    printPacket(*pkt);
-    //
     return *pkt;
 }
 
@@ -349,7 +392,7 @@ Packet ConnectionController::sendAndRec(Connection &connection, PacketInfo &pktI
 
     // Resend packet up to RETRY times or until ack'd
     // TODO: Should probably utilize the timeout queue instead of a while loop
-    while (pktInfo.count < RETRY && pkt->header.flags.ack != 1) {
+    while (pktInfo.count < appState->connectionSettings.retrylimit && pkt->header.flags.ack != 1) {
         sendPacket(connection, pktInfo);
         *pkt = recPacket(connection, timeout, badPkt);
 
@@ -358,7 +401,7 @@ Packet ConnectionController::sendAndRec(Connection &connection, PacketInfo &pktI
             break;
         }
 
-        if (badPkt && pktInfo.count < RETRY) {
+        if (badPkt && pktInfo.count < appState->connectionSettings.retrylimit) {
             badPkt = false;
             continue;
         }
@@ -385,16 +428,16 @@ Packet ConnectionController::recAndAck(Connection &connection, bool &timeout, bo
 
      do {
          pktBuilder.resetFlags();
+
          // Wait for next packet
-
          pkt = recPacket(connection, timeout, badPkt);
-
         // If we've timed out, then the connection exceeded it's TTL so we need to close the connection
         if (timeout) break;
 
         // Packet damaged or right of window
         if (badPkt || pkt.header.sqn > (connection.lastRec.lastFrameRec + connection.wSize)) {
             // Invalid packet; discard
+            printWindow(connection);
             badPkt = false;
             continue;
         }
@@ -404,6 +447,11 @@ Packet ConnectionController::recAndAck(Connection &connection, bool &timeout, bo
                 (pkt.header.sqn <= (connection.lastRec.lastFrameRec + connection.wSize)) &&
                 (pkt.header.flags.ping != 1 && pkt.header.flags.syn != 1)) {
            validPkt = true;
+        }
+
+        // Check if the client is signaling to close the connection. If so, don't send ACK
+        if (pkt.header.flags.ack == 1) {
+            return pkt;
         }
 
         // Toggle flag tracking if we're just starting to sync. If sync packet is sent again (lost/damaged), then
@@ -462,7 +510,7 @@ void ConnectionController::transferFile(Connection &connection) {
         do {
             // Fill the window/packet buffer
             if (!finished) {
-                for (unsigned int i = (connection.lastFrame.lastFrameSent + 1); i <= (connection.wSize + connection.lastRec.lastAckRec); i++) {
+                for (unsigned long i = (connection.lastFrame.lastFrameSent + 1); i <= (connection.wSize + connection.lastRec.lastAckRec); i++) {
                     // Create data packet
                     pktBuilder.setSqn(i);
                     bzero(fileBuffer, connection.pktSizeBytes);
@@ -493,12 +541,20 @@ void ConnectionController::transferFile(Connection &connection) {
                 printf("Packet %u *** TIMED OUT ***\n", pktInfo->pkt.header.sqn);
                 timeout = false; // reset flag
 
-                if (pktInfo->count < RETRY) {
+                if (pktInfo->count < appState->connectionSettings.retrylimit) {
                     sendPacket(connection, *pktInfo);
                 } else {
                     char convertedIP[INET_ADDRSTRLEN];
                     inet_ntop(AF_INET, &connection.destAddr.sin_addr, convertedIP, INET_ADDRSTRLEN);
                     printf("Packet %u exceeded RETRY limit. Closing connection to %s...\n", pktInfo->pkt.header.sqn, convertedIP);
+
+                    pktBuilder.resetFlags();
+                    pktBuilder.enableAckBit();
+                    pktBuilder.setSqn(connection.lastFrame.lastFrameSent + 1);
+                    pktBuilder.setPktSize(0);
+                    Packet pkt = pktBuilder.buildPacket();
+                    sendPacket(connection, pkt);
+
                     connection.status = CLOSED;
                     break;
                 }
@@ -549,7 +605,13 @@ void ConnectionController::transferFile(Connection &connection) {
 
                 // If we're finished AND our timeout queue is empty, then we've sent all our packets so close the connection
                 if (finished && connection.lastRec.lastAckRec == connection.lastFrame.lastFrameSent) {
-                    close(connection.sockfd);
+                    // Send final packet to signal time to close connection
+                    pktBuilder.setSqn(connection.lastFrame.lastFrameSent + 1);
+                    pktBuilder.setPktSize(0);
+                    pktBuilder.enableAckBit();
+                    Packet pkt = pktBuilder.buildPacket();
+                    sendPacket(connection, pkt);
+
                     connection.status = COMPLETE;
                     printf("Session successfully terminated\n");
                 }
@@ -565,32 +627,31 @@ void ConnectionController::transferFile(Connection &connection) {
         // Server
         Packet pkt;
         PacketInfo pktInfo;
-        unsigned int finalSqn = 0;
         bool inOrder = false;
 
         do {
             inOrder = false;
 
-            if (connection.lastRec.lastFrameRec == finalSqn) {
+            if (connection.lastRec.lastFrameRec == connection.finalSqn) {
                 finished = true;
                 connection.status = COMPLETE;
             }
 
             pkt = recAndAck(connection, timeout, badPkt);
 
-            if (timeout && !finished) {
+            if ((timeout && !finished) || (pkt.header.flags.ack == 1 && !finished)) {
                 // We've exceeded our TTL and haven't finished our transfer
                 printf("Connection closed\n");
                 connection.status = CLOSED;
                 break;
-            } else if (timeout && finished) {
+            } else if ((timeout && finished) || (pkt.header.flags.ack == 1 && finished)) {
                 printf("Session successfully terminated\n");
                 break;
             }
 
             // If we received a FIN packet, then we know what our last frame should be
             if (pkt.header.flags.fin == 1) {
-                finalSqn = pkt.header.sqn;
+                connection.finalSqn = pkt.header.sqn;
             }
 
             // Check if needs to be buffered (out-of-order) or not and if it's a retransmission
@@ -624,7 +685,6 @@ void ConnectionController::transferFile(Connection &connection) {
                 if ((connection.pktBuffer[(connection.lastRec.lastFrameRec + i) % connection.wSize].acked) &&
                 (connection.pktBuffer[(connection.lastRec.lastFrameRec + i) % connection.wSize].pkt.header.sqn > connection.lastRec.lastFrameRec)) {
                     if (pkt.header.pktSize > 0) {
-                        printf("Writing Packet %u payload to disk\n", connection.pktBuffer[(connection.lastRec.lastFrameRec + i) % connection.wSize].pkt.header.sqn );
                         fwrite(connection.pktBuffer[(connection.lastRec.lastFrameRec + i) % connection.wSize].pkt.payload, sizeof(char), pkt.header.pktSize, connection.file);
                     }
 
@@ -636,9 +696,10 @@ void ConnectionController::transferFile(Connection &connection) {
             }
 
             if (sequence) {
-                printf("Number of packets in sequence: %i\n", sequenceNum);
                 connection.lastRec.lastFrameRec += sequenceNum;
             }
+
+            if (connection.status == OPEN) printWindow(connection);
         } while (connection.status == OPEN);
     }
 
@@ -672,6 +733,7 @@ void ConnectionController::transferFile(Connection &connection) {
 
     // Cleanup
     fclose(connection.file);
+    close(connection.sockfd);
 
     if (appState->role == CLIENT) printf("MD5: %s\n", md5(appState->filePath).c_str());
     else printf("MD5: %s\n", md5(connection.filename).c_str());
@@ -682,17 +744,7 @@ void ConnectionController::addToPktBuffer(Connection &connection, Packet pkt) {
     auto pktInfo = new PacketInfo();
     pktInfo->pkt = pkt;
 
-//    //TODO: REMOVE ME!
-//    printf("---\n");
-//    printf("Inserting Packet SQN %u\n", pkt.header.sqn);
-//    printf("Inserted into Pkt Buffer at %u\n", pkt.header.sqn % connection.wSize);
-//    printf("PacketInfo size: %lu\n", sizeof(pktInfo));
-//    printf("Packet size: %lu\n", sizeof(pkt));
-//    printf("Packet Header Sizse: %lu\n", sizeof(Packet::Header));
-//    printf("Packet Payload Size: %lu\n", sizeof(pkt.payload));
-//    printf("---\n");
-//    //
-
+    delete[] connection.pktBuffer[pkt.header.sqn % connection.wSize].pkt.payload;
     connection.pktBuffer[pkt.header.sqn % connection.wSize] = *pktInfo;
 }
 
@@ -713,6 +765,7 @@ void ConnectionController::handshake(Connection &connection, bool isPing) {
         if (isPing) {
             pktBuilder.setSqn(0);
             pktBuilder.enablePingBit();
+            pktBuilder.emptyPayload();
         } else {
             pktBuilder.enableSynBit();
             pktBuilder.setSqn(connection.lastFrame.lastFrameSent);
@@ -762,8 +815,16 @@ void ConnectionController::handshake(Connection &connection, bool isPing) {
                 connection.wSize = ackPkt.header.wSize;
             }
             if (ackPkt.header.pktSize != connection.pktSizeBytes) connection.pktSizeBytes = ackPkt.header.pktSize;
-            if (ackPkt.header.sqnBits != connection.sqnBits) connection.sqnBits = ackPkt.header.sqnBits;
+            if (ackPkt.header.sqnBits != connection.sqnBits) {
+                connection.sqnBits = ackPkt.header.sqnBits;
+                if (connection.sqnBits == 32) {
+                    connection.sqnRange = -1;
+                } else {
+                    connection.sqnRange = (1 << connection.sqnBits);
+                }
+            }
             connection.lastRec.lastAckRec = ackPkt.header.sqn;
+            delete [] ackPkt.payload;
         }
     } else {
         // Server
@@ -787,7 +848,10 @@ void ConnectionController::handshake(Connection &connection, bool isPing) {
 
     // Both
     // If not Ping, transition to transfer phase
-    if (connection.status == OPEN || connection.status == COMPLETE) transferFile(connection);
+    if (connection.status == OPEN || connection.status == COMPLETE) {
+        if (connection.status == OPEN) printWindow(connection);
+        transferFile(connection);
+    }
 }
 
 chrono::microseconds ConnectionController::generatePingBasedTimeout() {
@@ -810,6 +874,11 @@ chrono::microseconds ConnectionController::generatePingBasedTimeout() {
     } else {
         printf("Unable to establish contact with Server; Aborting connection\n");
         avgTimeout = chrono::microseconds (0);
+    }
+
+    // Add a bit of a buffer if average ping is extremely quick
+    if (chrono::duration_cast<chrono::milliseconds>(avgTimeout).count() < 100) {
+        avgTimeout += chrono::milliseconds(100);
     }
 
     return avgTimeout;
@@ -843,13 +912,24 @@ bool ConnectionController::packetBadLuck(float prob) {
 void ConnectionController::printWindow(Connection &connection) {
     printf("Current window = [");
 
-    for (int i = connection.lastRec.lastAckRec + 1; i <= (connection.wSize + connection.lastRec.lastAckRec); i++) {
-        if (!(connection.pktBuffer[i % connection.wSize].pkt.header.sqn > connection.lastRec.lastAckRec)) break;
+    if (appState->role == CLIENT) {
+        for (unsigned int i = connection.lastRec.lastAckRec + 1; i <= (connection.wSize + connection.lastRec.lastAckRec); i++) {
+            if (!(connection.pktBuffer[i % connection.wSize].pkt.header.sqn > connection.lastRec.lastAckRec)) break;
 
-        if (i <= (connection.wSize + connection.lastRec.lastAckRec) - 1 && (connection.pktBuffer[i % connection.wSize].pkt.header.sqn < connection.pktBuffer[(i + 1) % connection.wSize].pkt.header.sqn)) {
-            printf("%u, ", connection.pktBuffer[i % connection.wSize].pkt.header.sqn);
-        } else {
-            printf("%u", connection.pktBuffer[i % connection.wSize].pkt.header.sqn);
+            if (i <= (connection.wSize + connection.lastRec.lastAckRec) - 1 && (connection.pktBuffer[i % connection.wSize].pkt.header.sqn < connection.pktBuffer[(i + 1) % connection.wSize].pkt.header.sqn)) {
+                printf("%u, ", connection.pktBuffer[i % connection.wSize].pkt.header.sqn % connection.sqnRange);
+            } else {
+                printf("%u", connection.pktBuffer[i % connection.wSize].pkt.header.sqn % connection.sqnRange);
+            }
+        }
+    } else {
+        for (unsigned int i = connection.lastRec.lastFrameRec + 1; i <= (connection.wSize + connection.lastRec.lastFrameRec); i++) {
+            if (i < (connection.wSize + connection.lastRec.lastFrameRec) - 1 && i != connection.finalSqn) {
+                printf("%u, ", i % connection.sqnRange);
+            }  else {
+                printf("%u", i % connection.sqnRange);
+                if (i == connection.finalSqn) break;
+            }
         }
     }
 
@@ -882,7 +962,7 @@ string ConnectionController::md5(const string& data) {
 }
 
 void ConnectionController::printPacket(Packet &pkt) {
-    printf("DEBUG: Packet SQN: %u\n", pkt.header.sqn);
+    printf("DEBUG: Packet SQN: %u (%u)\n", pkt.header.sqn, pkt.header.sqn % appState->connectionSettings.sqnRange);
     printf("DEBUG: Packet PKT Size: %u\n", pkt.header.pktSize);
     printf("DEBUG: Packet Checksum: %i\n", pkt.header.chksum);
     printf("DEBUG: Packet Flags: ");

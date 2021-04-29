@@ -147,7 +147,7 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
                         if (tmp == 32) {
                             appState->connectionSettings.sqnRange = -1; // assigning an unsigned int to -1 results in it containing its maximum value
                         } else {
-                            appState->connectionSettings.sqnRange = (1 << tmp) - 1;
+                            appState->connectionSettings.sqnRange = (1 << tmp);
                         }
                     } else {
                         fprintf(stderr, "Invalid sequence range provided: Value must be between 0 and 33 bits.\n");
@@ -224,6 +224,22 @@ void InputHelper::parseArgs(int argc, char **argv, ApplicationState *appState) {
                         appState->connectionSettings.maxConnections = tmp;
                     } else {
                         fprintf(stderr, "Invalid max number of connections provided: Value must be positive integer.\n");
+                        exit(-1);
+                    }
+                } catch (invalid_argument &e) {
+                    fprintf(stderr, "Invalid max number of connections provided: Error parsing value.\n");
+                    exit(-1);
+                }
+            }
+
+            if (strcmp(argv[i], "--retry") == 0 || strcmp(argv[i], "retry") == 0) {
+                try {
+                    tmp = stoi(argv[i + 1]);
+
+                    if (tmp > 0) {
+                        appState->connectionSettings.retrylimit = tmp;
+                    } else {
+                        fprintf(stderr, "Invalid number of retries provided: Value must be positive integer.\n");
                         exit(-1);
                     }
                 } catch (invalid_argument &e) {
@@ -523,7 +539,7 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
 
             if (input.empty()) {
                 appState->connectionSettings.sqnBits = 8;
-                appState->connectionSettings.sqnRange = (1 << 8) - 1;
+                appState->connectionSettings.sqnRange = (1 << appState->connectionSettings.sqnBits);
                 break;
             }
 
@@ -535,7 +551,7 @@ void InputHelper::promptForParameters(ApplicationState *appState) {
                         // assigning an unsigned int to -1 results in it containing its maximum value
                         appState->connectionSettings.sqnRange = -1;
                     } else {
-                        appState->connectionSettings.sqnRange = (1 << tmp) - 1;
+                        appState->connectionSettings.sqnRange = (1 << tmp);
                     }
 
                     appState->connectionSettings.sqnBits = tmp;

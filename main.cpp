@@ -24,7 +24,8 @@ int main(int argc, char *argv[]) {
         if (appState.role == CLIENT) printf("Role: CLIENT\n");
         else printf("Role: SERVER\n");
 
-        printf("IP Address: \n");
+        printf("Local IP Address: %s\n", connectionController->getLocalAddress().c_str());
+        printf("IP Addresses: \n");
 
         for (auto &ipAddress : appState.ipAddresses) {
             printf("\t%s\n", ipAddress.c_str());
